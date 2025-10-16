@@ -1,5 +1,5 @@
 """
-Strategy Backtest
+Strategy Backtestt
 =================
 
 Main class for running strategy backtests with all components.
