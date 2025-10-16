@@ -94,7 +94,7 @@ if __name__ == '__main__':
     
     import matplotlib.pyplot as plt
     
-    btc_real = pd.read_parquet('BTCUSD3600.pq')
+    btc_real = pd.read_parquet('data_stuff/BTCUSD1hour.pq')
     btc_real.index = btc_real.index.astype('datetime64[s]')
     btc_real = btc_real[(btc_real.index.year >= 2018) & (btc_real.index.year < 2020)]
 
@@ -108,36 +108,36 @@ if __name__ == '__main__':
     print(f"Skew. REAL: {btc_real_r.skew():14.6f} PERM: {btc_perm_r.skew():14.6f}")
     print(f"Kurt. REAL: {btc_real_r.kurt():14.6f} PERM: {btc_perm_r.kurt():14.6f}")
 
-    eth_real = pd.read_parquet('ETHUSD3600.pq')
-    eth_real.index = eth_real.index.astype('datetime64[s]')
-    eth_real = eth_real[(eth_real.index.year >= 2018) & (eth_real.index.year < 2020)]
-    eth_real_r = np.log(eth_real['close']).diff()
+    # eth_real = pd.read_parquet('ETHUSD3600.pq')
+    # eth_real.index = eth_real.index.astype('datetime64[s]')
+    # eth_real = eth_real[(eth_real.index.year >= 2018) & (eth_real.index.year < 2020)]
+    # eth_real_r = np.log(eth_real['close']).diff()
     
-    print("") 
+    # print("") 
 
-    permed = get_permutation([btc_real, eth_real])
-    btc_perm = permed[0]
-    eth_perm = permed[1]
+    # permed = get_permutation([btc_real, eth_real])
+    # btc_perm = permed[0]
+    # eth_perm = permed[1]
     
-    btc_perm_r = np.log(btc_perm['close']).diff()
-    eth_perm_r = np.log(eth_perm['close']).diff()
-    print(f"BTC&ETH Correlation REAL: {btc_real_r.corr(eth_real_r):5.3f} PERM: {btc_perm_r.corr(eth_perm_r):5.3f}")
+    # btc_perm_r = np.log(btc_perm['close']).diff()
+    # eth_perm_r = np.log(eth_perm['close']).diff()
+    # print(f"BTC&ETH Correlation REAL: {btc_real_r.corr(eth_real_r):5.3f} PERM: {btc_perm_r.corr(eth_perm_r):5.3f}")
 
-    plt.style.use("dark_background")    
-    np.log(btc_real['close']).diff().cumsum().plot(color='orange', label='BTCUSD')
-    np.log(eth_real['close']).diff().cumsum().plot(color='purple', label='ETHUSD')
+    # plt.style.use("dark_background")    
+    # np.log(btc_real['close']).diff().cumsum().plot(color='orange', label='BTCUSD')
+    # np.log(eth_real['close']).diff().cumsum().plot(color='purple', label='ETHUSD')
     
-    plt.ylabel("Cumulative Log Return")
-    plt.title("Real BTCUSD and ETHUSD")
-    plt.legend()
-    plt.show()
+    # plt.ylabel("Cumulative Log Return")
+    # plt.title("Real BTCUSD and ETHUSD")
+    # plt.legend()
+    # plt.show()
 
-    np.log(btc_perm['close']).diff().cumsum().plot(color='orange', label='BTCUSD')
-    np.log(eth_perm['close']).diff().cumsum().plot(color='purple', label='ETHUSD')
-    plt.title("Permuted BTCUSD and ETHUSD")
-    plt.ylabel("Cumulative Log Return")
-    plt.legend()
-    plt.show()
+    # np.log(btc_perm['close']).diff().cumsum().plot(color='orange', label='BTCUSD')
+    # np.log(eth_perm['close']).diff().cumsum().plot(color='purple', label='ETHUSD')
+    # plt.title("Permuted BTCUSD and ETHUSD")
+    # plt.ylabel("Cumulative Log Return")
+    # plt.legend()
+    # plt.show()
 
 
 

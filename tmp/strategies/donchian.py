@@ -47,11 +47,13 @@ def walkforward_donch(ohlc: pd.DataFrame, train_lookback: int = 24 * 365 * 4, tr
 
 if __name__ == '__main__':
 
-    df = pd.read_parquet('BTCUSD3600.pq')
+    df = pd.read_parquet('../data_stuff/BTCUSD1hour.pq')
     df.index = df.index.astype('datetime64[s]')
 
     df = df[(df.index.year >= 2016) & (df.index.year < 2020)] 
     best_lookback, best_real_pf = optimize_donchian(df)
+
+    print(f"Best lookback: {best_lookback}, Best real PF: {best_real_pf}")
 
     # Best lookback = 19, best_real_pf = 1.08
     
@@ -59,6 +61,12 @@ if __name__ == '__main__':
 
     df['r'] = np.log(df['close']).diff().shift(-1)
     df['donch_r'] = df['r'] * signal
+    
+    # Add after line 63
+    print(f"Signal stats: Min={signal.min():.2f}, Max={signal.max():.2f}, Mean={signal.mean():.2f}")
+    print(f"Strategy returns: Min={df['donch_r'].min():.4f}, Max={df['donch_r'].max():.4f}, Mean={df['donch_r'].mean():.4f}")
+    print(f"Total strategy log return: {df['donch_r'].sum():.4f}")
+    print(f"Buy and hold log return: {df['r'].sum():.4f}")
 
     plt.style.use("dark_background")
     df['donch_r'].cumsum().plot(color='red')
