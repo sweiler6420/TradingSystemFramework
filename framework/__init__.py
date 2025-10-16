@@ -16,8 +16,9 @@ from framework.data_handling import DataHandler
 from framework.performance import BaseMeasure
 from framework.backtest import StrategyBacktest
 
-from framework.strategies.rsi_strategy import RSIStrategy, RSIOptimizer
-from framework.strategies.donchian_strategy import DonchianStrategy, DonchianOptimizer
+from framework.strategies.rsi_breakout_strategy import RSIBreakoutStrategy, RSIBreakoutOptimizer
+from framework.strategies.donchian_breakout_strategy import DonchianBreakoutStrategy, DonchianBreakoutOptimizer
+from framework.features import BaseFeature, RSIFeature, DonchianFeature
 
 __version__ = "1.0.0"
 __author__ = "Stephen Weiler"
@@ -28,8 +29,11 @@ __all__ = [
     'Optimizer', 
     'BaseMeasure',
     'StrategyBacktest',
-    'RSIStrategy',
-    'RSIOptimizer',
-    'DonchianStrategy',
-    'DonchianOptimizer'
+    'RSIBreakoutStrategy',
+    'RSIBreakoutOptimizer',
+    'DonchianBreakoutStrategy',
+    'DonchianBreakoutOptimizer',
+    'BaseFeature',
+    'RSIFeature',
+    'DonchianFeature'
 ]

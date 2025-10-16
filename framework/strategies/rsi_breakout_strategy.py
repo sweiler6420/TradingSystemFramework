@@ -5,12 +5,12 @@ RSI Strategy Implementation
 
 import pandas as pd
 import numpy as np
-import pandas_ta as ta
 from typing import Dict, Any
 from framework.strategies.base_strategy import BaseStrategy, Optimizer
+from framework.features.rsi_feature import RSIFeature
 
 
-class RSIOptimizer(Optimizer):
+class RSIBreakoutOptimizer(Optimizer):
     """Optimizer for RSI strategy parameters"""
     
     def optimize(self, data: pd.DataFrame, strategy, **kwargs) -> Dict[str, Any]:
@@ -31,7 +31,7 @@ class RSIOptimizer(Optimizer):
                         continue
                         
                     # Generate signals with these parameters
-                    signals = strategy._generate_rsi_signals(
+                    signals = strategy._generate_rsi_signals_with_params(
                         data, period, buy_thresh, sell_thresh
                     )
                     
@@ -57,45 +57,99 @@ class RSIOptimizer(Optimizer):
         return winning_trades / losing_trades if losing_trades > 0 else 0
 
 
-class RSIStrategy(BaseStrategy):
-    """RSI-based long-only trading strategy"""
+class RSIBreakoutStrategy(BaseStrategy):
+    """RSI-based long-only trading strategy using RSIFeature"""
     
     def __init__(self, rsi_period: int = 14, buy_threshold: float = 20, sell_threshold: float = 80):
         super().__init__("RSI Strategy")
-        self.rsi_period = rsi_period
-        self.buy_threshold = buy_threshold
-        self.sell_threshold = sell_threshold
+        self.rsi_feature = RSIFeature(
+            period=rsi_period,
+            oversold=buy_threshold,
+            overbought=sell_threshold
+        )
         
 
     def generate_signals(self, **kwargs) -> pd.Series:
         """Generate RSI-based trading signals"""
         
         # Override parameters if provided
-        rsi_period = kwargs.get('rsi_period', self.rsi_period)
-        buy_threshold = kwargs.get('buy_threshold', self.buy_threshold)
-        sell_threshold = kwargs.get('sell_threshold', self.sell_threshold)
+        rsi_period = kwargs.get('rsi_period', self.rsi_feature.period)
+        buy_threshold = kwargs.get('buy_threshold', self.rsi_feature.oversold)
+        sell_threshold = kwargs.get('sell_threshold', self.rsi_feature.overbought)
         
-        return self._generate_rsi_signals(self.data, rsi_period, buy_threshold, sell_threshold)
+        # Update feature parameters if changed
+        if (rsi_period != self.rsi_feature.period or 
+            buy_threshold != self.rsi_feature.oversold or 
+            sell_threshold != self.rsi_feature.overbought):
+            self.rsi_feature.set_params(
+                period=rsi_period,
+                oversold=buy_threshold,
+                overbought=sell_threshold
+            )
+        
+        return self._generate_rsi_signals(self.data)
     
 
-    def _generate_rsi_signals(self, data: pd.DataFrame, rsi_period: int, buy_threshold: float, sell_threshold: float) -> pd.Series:
-        """Internal method to generate RSI signals"""
+    def _generate_rsi_signals(self, data: pd.DataFrame) -> pd.Series:
+        """Internal method to generate RSI signals using RSIFeature"""
         
-        # Calculate RSI
-        rsi = ta.rsi(data['close'], length=rsi_period)
+        # Get momentum signals from the feature
+        momentum_signals = self.rsi_feature.get_momentum_signals(data)
         
-        # Generate signals (long-only)
+        # Generate long-only trading signals
         signal = pd.Series(0, index=data.index)
         in_position = False
         
         for i in range(len(data)):
-            rsi_value = rsi.iloc[i]
+            is_oversold = momentum_signals['oversold'].iloc[i]
+            is_overbought = momentum_signals['overbought'].iloc[i]
             
-            if not in_position and rsi_value < buy_threshold:
+            if not in_position and is_oversold:
                 # Enter long position when oversold
                 signal.iloc[i] = 1
                 in_position = True
-            elif in_position and rsi_value > sell_threshold:
+            elif in_position and is_overbought:
+                # Exit long position when overbought
+                signal.iloc[i] = 0
+                in_position = False
+            elif in_position:
+                # Hold long position
+                signal.iloc[i] = 1
+            else:
+                # No position
+                signal.iloc[i] = 0
+        
+        return signal
+    
+    def _generate_rsi_signals_with_params(self, data: pd.DataFrame, 
+                                        rsi_period: int, 
+                                        buy_threshold: float, 
+                                        sell_threshold: float) -> pd.Series:
+        """Internal method to generate RSI signals with specific parameters for optimization"""
+        
+        # Create temporary RSI feature with specific parameters
+        temp_rsi_feature = RSIFeature(
+            period=rsi_period,
+            oversold=buy_threshold,
+            overbought=sell_threshold
+        )
+        
+        # Get momentum signals from the temporary feature
+        momentum_signals = temp_rsi_feature.get_momentum_signals(data)
+        
+        # Generate long-only trading signals
+        signal = pd.Series(0, index=data.index)
+        in_position = False
+        
+        for i in range(len(data)):
+            is_oversold = momentum_signals['oversold'].iloc[i]
+            is_overbought = momentum_signals['overbought'].iloc[i]
+            
+            if not in_position and is_oversold:
+                # Enter long position when oversold
+                signal.iloc[i] = 1
+                in_position = True
+            elif in_position and is_overbought:
                 # Exit long position when overbought
                 signal.iloc[i] = 0
                 in_position = False
