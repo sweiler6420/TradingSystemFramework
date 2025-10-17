@@ -73,3 +73,17 @@ Thumbs.db
 data/
 output/
 results/
+
+# Research project outputs (keep folder structure, exclude contents)
+research/*/data/*
+research/*/results/*
+research/*/plots/*
+research/*/archive/*
+research/*/notes/*
+
+# Keep folder structure but ignore contents
+!research/*/data/.gitkeep
+!research/*/results/.gitkeep
+!research/*/plots/.gitkeep
+!research/*/archive/.gitkeep
+!research/*/notes/.gitkeep

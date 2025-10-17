@@ -10,18 +10,38 @@ import sys
 from datetime import datetime
 import argparse
 
+# Add the parent directory to the path to import version_manager
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from research.version_manager import VersionManager
+
 
 def create_research_project(project_name: str, description: str = "") -> str:
     """
     Create a new research project directory with standardized structure.
     
     Args:
-        project_name: Name of the research project (e.g., "mach_1", "rsi_mean_reversion")
+        project_name: Required project title to append to auto-generated mach number (e.g., "rsi_test" becomes "mach3_rsi_test")
         description: Optional description of the research project
         
     Returns:
         str: Path to the created project directory
     """
+    
+    if not project_name:
+        raise ValueError("Project title is required. Use: python research/create_project.py 'your_title'")
+    
+    # Get the research directory
+    research_dir = os.path.dirname(__file__)
+    
+    # Initialize version manager for project naming
+    version_manager = VersionManager(research_dir)
+    
+    # Generate base project name
+    base_name = version_manager.get_next_project_name("mach")
+    
+    # Append custom title to the base name
+    clean_title = project_name.lower().replace(" ", "_").replace("-", "_")
+    project_name = f"{base_name}_{clean_title}"
     
     # Clean project name (replace spaces with underscores, lowercase)
     clean_name = project_name.lower().replace(" ", "_").replace("-", "_")
@@ -43,6 +63,15 @@ def create_research_project(project_name: str, description: str = "") -> str:
     
     for subdir in subdirs:
         os.makedirs(os.path.join(project_dir, subdir), exist_ok=True)
+    
+    # Create .gitkeep files for empty directories that should be tracked
+    gitkeep_dirs = ["data", "results", "plots", "notes", "archive"]
+    for gitkeep_dir in gitkeep_dirs:
+        gitkeep_file = os.path.join(project_dir, gitkeep_dir, ".gitkeep")
+        with open(gitkeep_file, 'w') as f:
+            f.write(f"# This file ensures the {gitkeep_dir} directory is tracked by git\n")
+            f.write("# even when it's empty. Remove this file if you want to ignore\n")
+            f.write("# the entire directory.\n")
     
     # Create project README
     readme_content = f"""# {project_name.title()}
@@ -296,13 +325,31 @@ PERFORMANCE_MEASURES = [
 
 def main():
     """Command line interface for creating research projects"""
-    parser = argparse.ArgumentParser(description='Create a new research project')
-    parser.add_argument('name', help='Name of the research project')
-    parser.add_argument('-d', '--description', default='', help='Description of the research project')
+    parser = argparse.ArgumentParser(
+        description='Create a new research project with automatic mach numbering',
+        epilog='''
+Examples:
+  python research/create_project.py "rsi_mean_reversion"
+  python research/create_project.py "donchian_breakout" -d "Testing Donchian breakout strategy"
+  python research/create_project.py "bollinger_bands" -d "Bollinger Bands mean reversion test"
+
+The project name will be automatically prefixed with the next available mach number:
+  "rsi_test" -> "mach6_rsi_test"
+  "moving_average" -> "mach7_moving_average"
+        ''',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument('title', help='Project title (required) - will be appended to auto-generated mach number')
+    parser.add_argument('-d', '--description', default='', help='Optional description of the research project')
     
     args = parser.parse_args()
     
-    create_research_project(args.name, args.description)
+    try:
+        create_research_project(args.title, args.description)
+    except ValueError as e:
+        print(f"Error: {e}")
+        parser.print_help()
+        sys.exit(1)
 
 
 if __name__ == "__main__":

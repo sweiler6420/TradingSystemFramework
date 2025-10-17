@@ -2,12 +2,11 @@
 In-Sample Excellence Test Implementation
 ======================================
 
-A standardized test for proof-of-concept validation.
+A standardized test for proof-of-concept validation using Bokeh for interactive plots.
 """
 
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 from datetime import datetime
 from typing import Dict, Any, Tuple
 import os
@@ -21,6 +20,12 @@ from framework.performance import (
     ProfitFactorMeasure, SharpeRatioMeasure, SortinoRatioMeasure,
     MaxDrawdownMeasure, TotalReturnMeasure, WinRateMeasure
 )
+
+# Version management
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from research.version_manager import VersionManager
 
 
 class InSampleExcellenceTest:
@@ -40,6 +45,10 @@ class InSampleExcellenceTest:
             'total_return': TotalReturnMeasure(),
             'win_rate': WinRateMeasure()
         }
+        
+        # Initialize version manager for both results and plots
+        self.version_manager = VersionManager(self.results_dir)
+        self.plots_version_manager = VersionManager(self.plots_dir)
     
     def run_test(self, strategy: SignalBasedStrategy, data_handler: DataHandler, 
                  test_name: str = "insample_excellence") -> Dict[str, Any]:
@@ -109,158 +118,53 @@ class InSampleExcellenceTest:
         return test_metadata
     
     def create_performance_plots(self, data: pd.DataFrame, signal_result, 
-                                results: Dict[str, Any], test_name: str = "insample_excellence"):
-        """Create comprehensive performance visualization plots"""
+                                results: Dict[str, Any], test_name: str = "insample_excellence", 
+                                show_plot: bool = True):
+        """Create comprehensive performance visualization plots using Bokeh"""
         print(f"\n=== CREATING PERFORMANCE PLOTS ===")
         
-        # Create static plots (multiple formats)
-        self._create_static_plots(data, signal_result, results, test_name)
-        
-        # Try to create interactive plots
+        # Create interactive plots with Bokeh
         try:
-            from .interactive_plot_creator import InteractivePlotCreator
-            interactive_creator = InteractivePlotCreator(self.plots_dir)
+            from .bokeh_interactive_plot_creator import BokehInteractivePlotCreator
+            bokeh_creator = BokehInteractivePlotCreator(self.plots_dir)
             
-            # Try HTML interactive plot first
-            html_file = interactive_creator.create_interactive_analysis(data, signal_result, results, test_name)
+            # Try full interactive analysis first
+            html_file = bokeh_creator.create_interactive_analysis(data, signal_result, results, test_name, show_plot, self.plots_version_manager)
             
             if html_file is None:
-                # Fall back to matplotlib interactive
-                interactive_creator.create_simple_interactive(data, signal_result, results, test_name)
+                # Fall back to simple interactive plot
+                bokeh_creator.create_simple_interactive(data, signal_result, results, test_name, show_plot, self.plots_version_manager)
                 
         except ImportError:
-            print("Interactive plot creator not available. Using static plots only.")
-    
-    def _create_static_plots(self, data: pd.DataFrame, signal_result, 
-                            results: Dict[str, Any], test_name: str = "insample_excellence"):
-        """Create static plots in multiple formats"""
-        
-        fig, axes = plt.subplots(4, 1, figsize=(15, 12), sharex=True)
-        
-        # 1. Price and Signal Changes
-        ax1 = axes[0]
-        # Plot price
-        ax1.plot(data.index, data['close'], label='Price', alpha=0.7, linewidth=1)
-        
-        # Get signal changes for plotting
-        plot_data = signal_result.get_signal_changes_for_plotting()
-        
-        if len(plot_data) > 0:
-            # Group by signal type for legend
-            signal_types = {}
-            
-            for _, row in plot_data.iterrows():
-                signal_type = row['signal_change']
-                if signal_type not in signal_types:
-                    signal_types[signal_type] = {
-                        'timestamps': [],
-                        'prices': [],
-                        'color': signal_type.plot_color,
-                        'marker': signal_type.plot_marker
-                    }
-                
-                signal_types[signal_type]['timestamps'].append(row['timestamp'])
-                signal_types[signal_type]['prices'].append(data.loc[row['timestamp'], 'close'])
-            
-            # Plot each signal type
-            for signal_type, data_dict in signal_types.items():
-                ax1.scatter(data_dict['timestamps'], data_dict['prices'], 
-                          color=data_dict['color'], marker=data_dict['marker'], 
-                          s=100, alpha=0.9, label=str(signal_type), zorder=5)
-        
-        ax1.set_title('Price and Signal Changes')
-        ax1.set_ylabel('Price ($)')
-        ax1.legend()
-        ax1.grid(True, alpha=0.3)
-        
-        # 2. Position States
-        ax2 = axes[1]
-        long_periods = signal_result.position_signals == PositionState.LONG.value
-        short_periods = signal_result.position_signals == PositionState.SHORT.value
-        neutral_periods = signal_result.position_signals == PositionState.NEUTRAL.value
-        
-        ax2.fill_between(data.index, 0, 1, where=long_periods, 
-                        color='green', alpha=0.3, label='Long Position')
-        ax2.fill_between(data.index, -1, 0, where=short_periods, 
-                        color='red', alpha=0.3, label='Short Position')
-        ax2.fill_between(data.index, -0.5, 0.5, where=neutral_periods, 
-                        color='gray', alpha=0.3, label='Neutral Position')
-        
-        ax2.set_title('Position States')
-        ax2.set_ylabel('Position')
-        ax2.set_ylim(-1.1, 1.1)
-        ax2.legend()
-        ax2.grid(True, alpha=0.3)
-        
-        # 3. Equity Curve
-        ax3 = axes[2]
-        returns = signal_result.position_signals * np.log(data['close']).diff().shift(-1)
-        cumulative_returns = (1 + returns).cumprod()
-        buy_hold_returns = (1 + np.log(data['close']).diff().shift(-1)).cumprod()
-        
-        ax3.plot(data.index, cumulative_returns, label='Strategy Equity', 
-                color='blue', linewidth=2)
-        ax3.plot(data.index, buy_hold_returns, label='Buy & Hold', 
-                color='gray', alpha=0.7)
-        ax3.set_title('Equity Curve Comparison')
-        ax3.set_ylabel('Cumulative Returns')
-        ax3.legend()
-        ax3.grid(True, alpha=0.3)
-        
-        # 4. Performance Summary
-        ax4 = axes[3]
-        ax4.axis('off')
-        performance_text = f"""
-Performance Summary:
-Total Return: {results['total_return']:.2%}
-Profit Factor: {results['profit_factor']:.2f}
-Sharpe Ratio: {results['sharpe_ratio']:.2f}
-Sortino Ratio: {results['sortino_ratio']:.2f}
-Max Drawdown: {results['max_drawdown']:.2%}
-Win Rate: {results['win_rate']:.2%}
-"""
-        ax4.text(0.1, 0.5, performance_text, fontsize=12, verticalalignment='center')
-        
-        plt.tight_layout()
-        
-        # Save in multiple formats
-        base_name = f"{self.plots_dir}/{test_name}_analysis"
-        
-        # Ensure plots directory exists
-        os.makedirs(self.plots_dir, exist_ok=True)
-        
-        # # Save as PNG (high quality for documents)
-        # plt.savefig(f'{base_name}.png', dpi=300, bbox_inches='tight')
-        
-        # # Save as SVG (vector format, more interactive)
-        # plt.savefig(f'{base_name}.svg', bbox_inches='tight')
-        
-        # # Save as PDF (vector format, good for publications)
-        # plt.savefig(f'{base_name}.pdf', bbox_inches='tight')
-        
-        plt.show()
-        
-        print(f"Static plots saved to:")
-        print(f"  - {base_name}.png (high quality)")
-        print(f"  - {base_name}.svg (vector, interactive)")
-        print(f"  - {base_name}.pdf (vector, publication)")
+            print("Bokeh not available. Install with: pip install bokeh")
+            print("No interactive plots will be created.")
     
     def _save_results(self, test_metadata: Dict[str, Any], test_name: str):
-        """Save test results to files"""
+        """Save test results to files with versioning"""
         import json
         
         # Ensure directories exist
         os.makedirs(self.results_dir, exist_ok=True)
         
+        # Get versioned filenames
+        versioned_base = self.version_manager.get_versioned_filename(test_name, prefix="V")
+        
         # Save performance results as CSV
         results_df = pd.DataFrame([test_metadata['performance_results']])
-        results_file = os.path.join(self.results_dir, f"{test_name}_results.csv")
+        results_file = os.path.join(self.results_dir, f"{versioned_base}_results.csv")
         results_df.to_csv(results_file, index=False)
         
         # Save metadata as JSON
-        metadata_file = os.path.join(self.results_dir, f"{test_name}_metadata.json")
+        metadata_file = os.path.join(self.results_dir, f"{versioned_base}_metadata.json")
         with open(metadata_file, 'w') as f:
             json.dump(test_metadata, f, indent=2, default=str)
+        
+        # Store versioned filenames for later use
+        test_metadata['versioned_files'] = {
+            'results_file': results_file,
+            'metadata_file': metadata_file,
+            'version': versioned_base.split('_')[-1]
+        }
     
     def generate_test_report(self, test_metadata: Dict[str, Any], test_name: str = "insample_excellence"):
         """Generate a comprehensive test report"""
@@ -301,7 +205,9 @@ Win Rate: {results['win_rate']:.2%}
 *Add next steps and recommendations here...*
 """
         
-        report_file = os.path.join(self.results_dir, f"{test_name}_report.md")
+        # Use versioned filename for the report
+        versioned_base = self.version_manager.get_versioned_filename(test_name, prefix="V")
+        report_file = os.path.join(self.results_dir, f"{versioned_base}_report.md")
         with open(report_file, 'w') as f:
             f.write(report_content)
         

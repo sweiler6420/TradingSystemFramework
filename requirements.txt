@@ -1,9 +1,23 @@
+# Core data science libraries
 numpy>=1.24.0
 pandas>=1.5.0
-pandas-ta>=0.4.67b0
-matplotlib>=3.5.0
 scipy>=1.9.0
-seaborn>=0.11.0
+
+# Technical analysis
+pandas-ta>=0.4.67b0
+
+# Interactive visualization (primary)
+bokeh>=3.8.0
+
+# Static plotting (optional)
+matplotlib>=3.5.0
+
+# Jupyter and development
 jupyter>=1.0.0
+seaborn>=0.11.0
+
+# Data sources
 yfinance>=0.2.0
+
+# Data formats
 pyarrow>=10.0.0
