@@ -34,8 +34,8 @@ class StrategyBacktest:
         # Run strategy
         results = self.strategy.run_strategy(**kwargs)
         
-        # Add Monte Carlo test
-        results['monte_carlo'] = self.strategy.run_monte_carlo_test(**kwargs)
+        # Add significance test
+        results['significance_test'] = self.strategy.run_significance_test(**kwargs)
         
         return results
     

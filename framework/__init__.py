@@ -8,17 +8,16 @@ with three core components:
 2. Development Data (market data handling)
 3. Optimizer (parameter selection, model training)
 
-Plus performance measures and Monte Carlo testing.
+Plus performance measures and significance testing.
 """
 
-from framework.strategies import BaseStrategy, Optimizer
+from framework.strategies import BaseStrategy, Optimizer, SignalBasedStrategy, SignalBasedOptimizer
 from framework.data_handling import DataHandler
 from framework.performance import BaseMeasure
+from framework.significance_testing import BaseSignificanceTest
 from framework.backtest import StrategyBacktest
-
-from framework.strategies.rsi_breakout_strategy import RSIBreakoutStrategy, RSIBreakoutOptimizer
-from framework.strategies.donchian_breakout_strategy import DonchianBreakoutStrategy, DonchianBreakoutOptimizer
 from framework.features import BaseFeature, RSIFeature, DonchianFeature
+from framework.signals import PositionState, SignalChange, SignalResult, SignalManager
 
 __version__ = "1.0.0"
 __author__ = "Stephen Weiler"
@@ -28,12 +27,15 @@ __all__ = [
     'DataHandler',
     'Optimizer', 
     'BaseMeasure',
+    'BaseSignificanceTest',
     'StrategyBacktest',
-    'RSIBreakoutStrategy',
-    'RSIBreakoutOptimizer',
-    'DonchianBreakoutStrategy',
-    'DonchianBreakoutOptimizer',
+    'SignalBasedStrategy',
+    'SignalBasedOptimizer',
     'BaseFeature',
     'RSIFeature',
-    'DonchianFeature'
+    'DonchianFeature',
+    'PositionState',
+    'SignalChange',
+    'SignalResult',
+    'SignalManager'
 ]

@@ -90,15 +90,17 @@ class BaseStrategy(ABC):
         return self.performance
     
 
-    def run_monte_carlo_test(self, n_permutations: int = 1000, **kwargs) -> Dict[str, Any]:
-        """Run Monte Carlo permutation test"""
-        from framework.performance.monte_carlo_measures import MonteCarloPermutationTest
+    def run_significance_test(self, significance_test=None, **kwargs) -> Dict[str, Any]:
+        """Run significance test to validate strategy results"""
+        from framework.significance_testing.monte_carlo_significance_test import MonteCarloSignificanceTest
+        
+        if significance_test is None:
+            significance_test = MonteCarloSignificanceTest()
         
         if self.returns is None:
             self.calculate_performance()
             
-        mc_test = MonteCarloPermutationTest(n_permutations=n_permutations)
-        return mc_test.calculate(self.data, self.returns, **kwargs)
+        return significance_test.get_results(self.data, self.returns, **kwargs)
     
 
     def optimize(self, **kwargs) -> Dict[str, Any]:

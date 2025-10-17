@@ -4,14 +4,11 @@ Strategy Implementations
 """
 
 from framework.strategies.base_strategy import BaseStrategy, Optimizer
-from framework.strategies.rsi_breakout_strategy import RSIBreakoutStrategy, RSIBreakoutOptimizer
-from framework.strategies.donchian_breakout_strategy import DonchianBreakoutStrategy, DonchianBreakoutOptimizer
+from framework.strategies.signal_based_strategy import SignalBasedStrategy, SignalBasedOptimizer
 
 __all__ = [
     'BaseStrategy',
     'Optimizer',
-    'RSIBreakoutStrategy',
-    'RSIBreakoutOptimizer', 
-    'DonchianBreakoutStrategy',
-    'DonchianBreakoutOptimizer'
+    'SignalBasedStrategy',
+    'SignalBasedOptimizer'
 ]
