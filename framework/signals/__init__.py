@@ -8,7 +8,7 @@ A standardized signal system for all trading strategies that provides:
 - Consistent plotting and analysis
 """
 
-import pandas as pd
+import polars as pl
 import numpy as np
 from enum import Enum
 from typing import Dict, Any, Tuple, Optional
@@ -93,9 +93,9 @@ class SignalChange(Enum):
 @dataclass
 class SignalResult:
     """Result from signal generation containing position states and changes"""
-    position_signals: pd.Series  # Position states (1, -1, 0) for return calculation
-    signal_changes: pd.Series    # Signal changes for plotting and analysis
-    raw_signals: Optional[pd.Series] = None  # Optional raw signals before position management
+    position_signals: pl.Series  # Position states (1, -1, 0) for return calculation
+    signal_changes: pl.Series    # Signal changes for plotting and analysis
+    raw_signals: Optional[pl.Series] = None  # Optional raw signals before position management
     
     def get_position_counts(self) -> Dict[str, int]:
         """Get count of each position state"""
@@ -106,60 +106,110 @@ class SignalResult:
     
     def get_signal_change_counts(self) -> Dict[str, int]:
         """Get count of each signal change type"""
-        valid_changes = self.signal_changes.dropna()
+        valid_changes = self.signal_changes.drop_nulls()
         counts = {}
         for change in SignalChange:
-            count = (valid_changes == change).sum()
+            count = (valid_changes == change.value).sum()
             if count > 0:
                 counts[change.value] = count
         return counts
     
-    def get_signal_changes_for_plotting(self) -> pd.DataFrame:
-        """Get signal changes formatted for plotting"""
-        valid_changes = self.signal_changes.dropna()
+    def get_signal_changes_for_plotting(self, data: pl.DataFrame = None) -> pl.DataFrame:
+        """Get signal changes formatted for plotting
         
-        if len(valid_changes) == 0:
-            return pd.DataFrame()
+        Args:
+            data: DataFrame with timestamp column to get actual timestamps
+        """
+        # Only get actual signal changes, not NO_CHANGE
+        signal_changes = self.signal_changes.drop_nulls()
+        
+        if len(signal_changes) == 0:
+            return pl.DataFrame()
         
         plot_data = []
-        for timestamp, change in valid_changes.items():
-            plot_data.append({
-                'timestamp': timestamp,
-                'signal_change': change,
-                'color': change.plot_color,
-                'marker': change.plot_marker
-            })
+        for i, change_str in enumerate(signal_changes):
+            # Skip NO_CHANGE signals
+            if change_str == "NO_CHANGE":
+                continue
+                
+            # Convert string back to SignalChange enum
+            try:
+                change_enum = SignalChange(change_str)
+                
+                # Get actual timestamp if data is provided
+                if data is not None and 'timestamp' in data.columns and i < len(data):
+                    actual_timestamp = data['timestamp'][i]
+                    actual_price = data['close'][i]
+                else:
+                    actual_timestamp = i  # Fallback to index
+                    actual_price = 0
+                
+                plot_data.append({
+                    'index': i,
+                    'timestamp': actual_timestamp,
+                    'price': actual_price,
+                    'signal_change': change_enum,
+                    'color': change_enum.plot_color,
+                    'marker': change_enum.plot_marker
+                })
+            except ValueError:
+                # Skip invalid signal changes
+                continue
         
-        return pd.DataFrame(plot_data)
+        return pl.DataFrame(plot_data)
 
 
 class SignalManager:
     """Manages signal generation and position state transitions"""
     
-    def __init__(self, long_only: bool = False):
-        self.long_only = long_only
+    def __init__(self):
         self.current_position = PositionState.NEUTRAL
     
-    def generate_signals(self, raw_signals: pd.Series, 
-                        exit_conditions: Optional[pd.Series] = None) -> SignalResult:
-        """Generate position signals and signal changes from SignalChange enums
+    def generate_signals(self, raw_signals: pl.Series, exit_conditions: Optional[pl.Series] = None, signal_type: Optional[type] = None) -> SignalResult:
+        """Generate position signals and signal changes from SignalChange enums or PositionState enums
         
         Args:
-            raw_signals: SignalChange enums (NEUTRAL_TO_LONG, LONG_TO_NEUTRAL, etc.)
+            raw_signals: SignalChange enums (NEUTRAL_TO_LONG, LONG_TO_NEUTRAL, etc.) or PositionState enums (LONG, SHORT, NEUTRAL)
             exit_conditions: Optional conditions for exiting positions (True = exit)
+            signal_type: Type of signals (SignalChange or PositionState). If None, auto-detect from first element
             
         Returns:
             SignalResult: Contains position signals and signal changes
         """
         
-        position_signals = pd.Series(PositionState.NEUTRAL, index=raw_signals.index)
-        signal_changes = pd.Series(SignalChange.NO_CHANGE, index=raw_signals.index)
+        # Convert to lists for easier manipulation
+        raw_signals_list = raw_signals.to_list()
+        exit_conditions_list = exit_conditions.to_list() if exit_conditions is not None else [False] * len(raw_signals)
+        
+        # Auto-detect signal type if not provided
+        if signal_type is None and len(raw_signals_list) > 0:
+            if isinstance(raw_signals_list[0], SignalChange):
+                signal_type = SignalChange
+            elif isinstance(raw_signals_list[0], PositionState):
+                signal_type = PositionState
+            elif isinstance(raw_signals_list[0], str):
+                # Convert strings back to SignalChange enums
+                signal_type = SignalChange
+                raw_signals_list = [self._string_to_signal_change(s) for s in raw_signals_list]
+            else:
+                raise ValueError(f"Unknown signal type: {type(raw_signals_list[0])}")
+        
+        position_signals_list = []
+        signal_changes_list = []
         
         self.current_position = PositionState.NEUTRAL
         
-        for i in range(len(raw_signals)):
-            signal_change = raw_signals.iloc[i]
-            exit_condition = exit_conditions.iloc[i] if exit_conditions is not None else False
+        for i in range(len(raw_signals_list)):
+            raw_signal = raw_signals_list[i]
+            exit_condition = exit_conditions_list[i]
+            
+            # Convert PositionState to SignalChange if needed
+            if signal_type == PositionState:
+                # raw_signal is a string representation of PositionState
+                position_state = PositionState(raw_signal)
+                signal_change = self._position_state_to_signal_change(position_state)
+            else:
+                signal_change = raw_signal
             
             # Handle exit conditions first
             if exit_condition and self.current_position != PositionState.NEUTRAL:
@@ -173,8 +223,12 @@ class SignalManager:
             
             # Update position
             self.current_position = new_position
-            position_signals.iloc[i] = self.current_position
-            signal_changes.iloc[i] = signal_change
+            position_signals_list.append(self.current_position.value)
+            signal_changes_list.append(signal_change.value if hasattr(signal_change, 'value') else str(signal_change))
+        
+        # Convert back to polars Series
+        position_signals = pl.Series(position_signals_list)
+        signal_changes = pl.Series(signal_changes_list)
         
         return SignalResult(
             position_signals=position_signals,
@@ -182,32 +236,74 @@ class SignalManager:
             raw_signals=raw_signals
         )
     
-    def _apply_signal_change(self, signal_change: SignalChange) -> PositionState:
+    def _position_state_to_signal_change(self, position_state: PositionState) -> SignalChange:
+        """Convert PositionState to SignalChange based on current position"""
+        
+        if position_state == PositionState.NEUTRAL:
+            if self.current_position == PositionState.LONG:
+                return SignalChange.LONG_TO_NEUTRAL
+            elif self.current_position == PositionState.SHORT:
+                return SignalChange.SHORT_TO_NEUTRAL
+            else:
+                return SignalChange.NO_CHANGE
+                
+        elif position_state == PositionState.LONG:
+            if self.current_position == PositionState.NEUTRAL:
+                return SignalChange.NEUTRAL_TO_LONG
+            elif self.current_position == PositionState.SHORT:
+                return SignalChange.SHORT_TO_LONG
+            else:
+                return SignalChange.NO_CHANGE
+                
+        elif position_state == PositionState.SHORT:
+            if self.current_position == PositionState.NEUTRAL:
+                return SignalChange.NEUTRAL_TO_SHORT
+            elif self.current_position == PositionState.LONG:
+                return SignalChange.LONG_TO_SHORT
+            else:
+                return SignalChange.NO_CHANGE
+        
+        return SignalChange.NO_CHANGE
+    
+    def _string_to_signal_change(self, signal_str: str) -> SignalChange:
+        """Convert string to SignalChange enum"""
+        try:
+            return SignalChange(signal_str)
+        except ValueError:
+            # If it's not a valid SignalChange, return NO_CHANGE
+            return SignalChange.NO_CHANGE
+    
+    def _apply_signal_change(self, signal_change) -> PositionState:
         """Apply signal change to determine new position"""
         
-        if signal_change == SignalChange.NEUTRAL_TO_LONG:
+        # Handle both string and enum inputs
+        if isinstance(signal_change, str):
+            signal_str = signal_change
+        elif isinstance(signal_change, SignalChange):
+            signal_str = signal_change.value
+        else:
+            # Try to convert to string
+            signal_str = str(signal_change)
+        
+        if signal_str == "NEUTRAL_TO_LONG":
             return PositionState.LONG
-        elif signal_change == SignalChange.NEUTRAL_TO_SHORT:
-            if self.long_only:
-                return PositionState.NEUTRAL  # Can't go short in long-only mode
+        elif signal_str == "NEUTRAL_TO_SHORT":
             return PositionState.SHORT
-        elif signal_change == SignalChange.LONG_TO_NEUTRAL:
+        elif signal_str == "LONG_TO_NEUTRAL":
             return PositionState.NEUTRAL
-        elif signal_change == SignalChange.SHORT_TO_NEUTRAL:
+        elif signal_str == "SHORT_TO_NEUTRAL":
             return PositionState.NEUTRAL
-        elif signal_change == SignalChange.LONG_TO_SHORT:
-            if self.long_only:
-                return PositionState.NEUTRAL  # Can't go short in long-only mode
+        elif signal_str == "LONG_TO_SHORT":
             return PositionState.SHORT
-        elif signal_change == SignalChange.SHORT_TO_LONG:
+        elif signal_str == "SHORT_TO_LONG":
             return PositionState.LONG
-        elif signal_change == SignalChange.NO_CHANGE:
+        elif signal_str == "NO_CHANGE":
             return self.current_position
         else:
             return self.current_position
 
 
-def plot_signals(data: pd.DataFrame, signal_result: SignalResult, 
+def plot_signals(data: pl.DataFrame, signal_result: SignalResult, 
                 title: str = "Strategy Signals", ax=None) -> None:
     """Plot price with signal changes using the standardized signal system
     
@@ -223,7 +319,7 @@ def plot_signals(data: pd.DataFrame, signal_result: SignalResult,
         fig, ax = plt.subplots(1, 1, figsize=(12, 6))
     
     # Plot price
-    ax.plot(data.index, data['close'], label='Price', alpha=0.7, linewidth=1)
+    ax.plot(range(len(data)), data['close'], label='Price', alpha=0.7, linewidth=1)
     
     # Get signal changes for plotting
     plot_data = signal_result.get_signal_changes_for_plotting()
@@ -232,22 +328,22 @@ def plot_signals(data: pd.DataFrame, signal_result: SignalResult,
         # Group by signal type for legend
         signal_types = {}
         
-        for _, row in plot_data.iterrows():
+        for row in plot_data.iter_rows(named=True):
             signal_type = row['signal_change']
             if signal_type not in signal_types:
                 signal_types[signal_type] = {
-                    'timestamps': [],
+                    'indices': [],
                     'prices': [],
                     'color': signal_type.plot_color,
                     'marker': signal_type.plot_marker
                 }
             
-            signal_types[signal_type]['timestamps'].append(row['timestamp'])
-            signal_types[signal_type]['prices'].append(data.loc[row['timestamp'], 'close'])
+            signal_types[signal_type]['indices'].append(row['index'])
+            signal_types[signal_type]['prices'].append(data[row['index'], 'close'])
         
         # Plot each signal type
         for signal_type, data_dict in signal_types.items():
-            ax.scatter(data_dict['timestamps'], data_dict['prices'], 
+            ax.scatter(data_dict['indices'], data_dict['prices'], 
                       color=data_dict['color'], marker=data_dict['marker'], 
                       s=100, alpha=0.9, label=str(signal_type), zorder=5)
     
@@ -257,7 +353,7 @@ def plot_signals(data: pd.DataFrame, signal_result: SignalResult,
     ax.grid(True, alpha=0.3)
 
 
-def plot_position_states(data: pd.DataFrame, signal_result: SignalResult, 
+def plot_position_states(data: pl.DataFrame, signal_result: SignalResult, 
                         title: str = "Position States", ax=None) -> None:
     """Plot position states over time
     
@@ -277,11 +373,11 @@ def plot_position_states(data: pd.DataFrame, signal_result: SignalResult,
     short_periods = signal_result.position_signals == PositionState.SHORT.value
     neutral_periods = signal_result.position_signals == PositionState.NEUTRAL.value
     
-    ax.fill_between(data.index, 0, 1, where=long_periods, 
+    ax.fill_between(range(len(data)), 0, 1, where=long_periods, 
                     color='green', alpha=0.3, label='Long Position')
-    ax.fill_between(data.index, -1, 0, where=short_periods, 
+    ax.fill_between(range(len(data)), -1, 0, where=short_periods, 
                     color='red', alpha=0.3, label='Short Position')
-    ax.fill_between(data.index, -0.5, 0.5, where=neutral_periods, 
+    ax.fill_between(range(len(data)), -0.5, 0.5, where=neutral_periods, 
                     color='gray', alpha=0.3, label='Neutral Position')
     
     ax.set_title(title)
@@ -291,7 +387,7 @@ def plot_position_states(data: pd.DataFrame, signal_result: SignalResult,
     ax.grid(True, alpha=0.3)
 
 
-def calculate_strategy_returns(data: pd.DataFrame, signal_result: SignalResult) -> pd.Series:
+def calculate_strategy_returns(data: pl.DataFrame, signal_result: SignalResult) -> pl.Series:
     """Calculate strategy returns using position signals
     
     Args:
@@ -299,17 +395,14 @@ def calculate_strategy_returns(data: pd.DataFrame, signal_result: SignalResult) 
         signal_result: SignalResult from signal generation
         
     Returns:
-        pd.Series: Strategy returns
+        pl.Series: Strategy returns
     """
     if 'return' not in data.columns:
-        data['return'] = np.log(data['close']).diff().shift(-1)
+        data = data.with_columns(
+            pl.col('close').log().diff().shift(-1).alias('return')
+        )
     
-    # Convert PositionState enums to numeric values for return calculation (optimized)
-    # Use astype() to avoid pandas warnings
-    numeric_signals = signal_result.position_signals.map({
-        PositionState.LONG: 1,
-        PositionState.SHORT: -1,
-        PositionState.NEUTRAL: 0
-    }).astype(float)
+    # Convert PositionState enums to numeric values for return calculation
+    numeric_signals = signal_result.position_signals.cast(pl.Float64)
     
     return numeric_signals * data['return']

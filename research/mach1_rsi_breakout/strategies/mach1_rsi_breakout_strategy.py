@@ -6,7 +6,7 @@ RSI breakout strategy that enters long positions when RSI breaks above oversold 
 and exits when RSI breaks below overbought levels.
 """
 
-import pandas as pd
+import polars as pl
 import numpy as np
 from framework import SignalBasedStrategy, RSIFeature, SignalChange
 
@@ -14,15 +14,15 @@ from framework import SignalBasedStrategy, RSIFeature, SignalChange
 class Mach1RsiBreakoutStrategy(SignalBasedStrategy):
     """RSI Breakout Strategy - Enter on oversold breakout, exit on overbought breakout"""
     
-    def __init__(self, rsi_period=14, oversold=30, overbought=70, long_only=True, **kwargs):
-        super().__init__("Mach1 RSI Breakout Strategy", long_only=long_only)
+    def __init__(self, rsi_period=14, oversold=30, overbought=70, **kwargs):
+        super().__init__("Mach1 RSI Breakout Strategy")
         self.rsi_feature = RSIFeature(period=rsi_period)
         self.rsi_period = rsi_period
         self.oversold = oversold
         self.overbought = overbought
         self.position = 0  # Track current position
     
-    def generate_raw_signals(self, data: pd.DataFrame, **kwargs) -> pd.Series:
+    def generate_raw_signal(self, data: pl.DataFrame, **kwargs) -> pl.Series:
         """Generate RSI breakout signals using SignalChange enums"""
         
         # Override parameters if provided
@@ -39,24 +39,30 @@ class Mach1RsiBreakoutStrategy(SignalBasedStrategy):
         rsi_values = self.rsi_feature.calculate(data)
         
         # Create signals for breakout strategy using SignalChange enums
-        signals = pd.Series(SignalChange.NO_CHANGE, index=data.index)
+        signals_list = [SignalChange.NO_CHANGE] * len(data)
         
         # RSI Breakout Logic:
         # Enter long when RSI breaks above oversold level (coming out of oversold)
         # Exit long when RSI breaks below overbought level (coming out of overbought)
         
         for i in range(1, len(data)):
-            current_rsi = rsi_values.iloc[i]
-            previous_rsi = rsi_values.iloc[i-1]
+            current_rsi = rsi_values[i]
+            previous_rsi = rsi_values[i-1]
+            
+            # Skip if RSI values are NaN
+            if current_rsi is None or previous_rsi is None or str(current_rsi) == 'nan' or str(previous_rsi) == 'nan':
+                continue
             
             # Enter long position: RSI was oversold and now breaks above oversold
             if (previous_rsi <= oversold and current_rsi > oversold and self.position == 0):
-                signals.iloc[i] = SignalChange.NEUTRAL_TO_LONG
+                signals_list[i] = SignalChange.NEUTRAL_TO_LONG
                 self.position = 1
             
             # Exit long position: RSI was overbought and now breaks below overbought
             elif (previous_rsi >= overbought and current_rsi < overbought and self.position == 1):
-                signals.iloc[i] = SignalChange.LONG_TO_NEUTRAL
+                signals_list[i] = SignalChange.LONG_TO_NEUTRAL
                 self.position = 0
         
+        # Convert list to Polars Series
+        signals = pl.Series(signals_list)
         return signals

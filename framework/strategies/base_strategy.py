@@ -2,26 +2,14 @@
 Base Strategy Classes
 ====================
 
-Contains the abstract base classes for trading strategies and optimizers.
+Contains the abstract base classes for trading strategies.
 """
 
 from abc import ABC, abstractmethod
-import pandas as pd
+import polars as pl
 import numpy as np
 from typing import Dict, Any, Optional, List, Tuple
 import warnings
-
-
-class Optimizer(ABC):
-    """
-    Abstract base class for strategy optimization.
-    Can be parameter optimization, model training, pattern selection, etc.
-    """
-    
-    @abstractmethod
-    def optimize(self, data: pd.DataFrame, strategy, **kwargs) -> Dict[str, Any]:
-        """Optimize strategy parameters or train models"""
-        pass
 
 
 class BaseStrategy(ABC):
@@ -32,7 +20,6 @@ class BaseStrategy(ABC):
     def __init__(self, name: str):
         self.name = name
         self.data_handler = None
-        self.optimizer = None
         self.data = None
         self.signals = None
         self.returns = None
@@ -45,13 +32,8 @@ class BaseStrategy(ABC):
         self.data = data_handler.get_data()
         
 
-    def set_optimizer(self, optimizer: Optimizer):
-        """Set the optimizer"""
-        self.optimizer = optimizer
-        
-
     @abstractmethod
-    def generate_signals(self, **kwargs) -> pd.Series:
+    def generate_signals(self, **kwargs) -> pl.Series:
         """Generate trading signals"""
         pass
     
@@ -103,19 +85,11 @@ class BaseStrategy(ABC):
         return significance_test.get_results(self.data, self.returns, **kwargs)
     
 
-    def optimize(self, **kwargs) -> Dict[str, Any]:
-        """Run optimization"""
-        if self.optimizer is None:
-            raise ValueError("No optimizer set. Call set_optimizer() first.")
-            
-        return self.optimizer.optimize(self.data, self, **kwargs)
-    
-    
     def run_strategy(self, **kwargs) -> Dict[str, Any]:
         """Run the complete strategy pipeline"""
         # Generate signals
         self.signals = self.generate_signals(**kwargs)
-        self.data['signal'] = self.signals
+        self.data = self.data.with_columns(self.signals.alias('signal'))
         
         # Calculate performance
         performance = self.calculate_performance()

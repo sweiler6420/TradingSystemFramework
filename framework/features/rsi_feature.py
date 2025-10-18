@@ -6,9 +6,8 @@ Relative Strength Index (RSI) is a momentum oscillator that measures the speed
 and magnitude of price changes.
 """
 
-import pandas as pd
+import polars as pl
 import numpy as np
-import pandas_ta as ta
 from typing import Dict, Any, Optional
 from framework.features.base_feature import BaseFeature
 
@@ -51,7 +50,7 @@ class RSIFeature(BaseFeature):
         self.overbought = overbought
         self.oversold = oversold
         
-    def calculate(self, data: pd.DataFrame) -> pd.Series:
+    def calculate(self, data: pl.DataFrame) -> pl.Series:
         """
         Calculate RSI values.
         
@@ -64,10 +63,44 @@ class RSIFeature(BaseFeature):
         if not self.validate_data(data):
             raise ValueError("Data must contain OHLCV columns")
             
-        return ta.rsi(data['close'], length=self.period)
+        # Calculate price changes
+        price_changes = data.select(
+            pl.col('close').diff().alias('price_change')
+        )
+        
+        # Separate gains and losses
+        gains_losses = price_changes.select([
+            pl.when(pl.col('price_change') > 0)
+            .then(pl.col('price_change'))
+            .otherwise(0)
+            .alias('gains'),
+            pl.when(pl.col('price_change') < 0)
+            .then(pl.col('price_change').abs())
+            .otherwise(0)
+            .alias('losses')
+        ])
+        
+        # Calculate smoothed averages using exponential moving average
+        alpha = 1.0 / self.period
+        rsi_data = gains_losses.with_columns([
+            pl.col('gains').ewm_mean(alpha=alpha, adjust=False).alias('avg_gains'),
+            pl.col('losses').ewm_mean(alpha=alpha, adjust=False).alias('avg_losses')
+        ])
+        
+        # Calculate RSI
+        rsi_values = rsi_data.select(
+            pl.when(pl.col('avg_losses') == 0)
+            .then(100.0)
+            .otherwise(
+                100.0 - (100.0 / (1.0 + pl.col('avg_gains') / pl.col('avg_losses')))
+            )
+            .alias('rsi')
+        )
+        
+        return rsi_values['rsi']
     
-    def get_overbought_signals(self, data: pd.DataFrame, 
-                              threshold: Optional[float] = None) -> pd.Series:
+    def get_overbought_signals(self, data: pl.DataFrame, 
+                              threshold: Optional[float] = None) -> pl.Series:
         """
         Get overbought signals.
         
@@ -84,8 +117,8 @@ class RSIFeature(BaseFeature):
         rsi_values = self.calculate(data)
         return rsi_values > threshold
     
-    def get_oversold_signals(self, data: pd.DataFrame,
-                            threshold: Optional[float] = None) -> pd.Series:
+    def get_oversold_signals(self, data: pl.DataFrame,
+                            threshold: Optional[float] = None) -> pl.Series:
         """
         Get oversold signals.
         
@@ -102,9 +135,9 @@ class RSIFeature(BaseFeature):
         rsi_values = self.calculate(data)
         return rsi_values < threshold
     
-    def get_momentum_signals(self, data: pd.DataFrame,
+    def get_momentum_signals(self, data: pl.DataFrame,
                            overbought_threshold: Optional[float] = None,
-                           oversold_threshold: Optional[float] = None) -> Dict[str, pd.Series]:
+                           oversold_threshold: Optional[float] = None) -> Dict[str, pl.Series]:
         """
         Get both overbought and oversold signals.
         
@@ -121,8 +154,8 @@ class RSIFeature(BaseFeature):
             'oversold': self.get_oversold_signals(data, oversold_threshold)
         }
     
-    def get_divergence_signals(self, data: pd.DataFrame, 
-                             lookback: int = 5) -> Dict[str, pd.Series]:
+    def get_divergence_signals(self, data: pl.DataFrame, 
+                             lookback: int = 5) -> Dict[str, pl.Series]:
         """
         Get divergence signals (price vs RSI).
         
@@ -135,24 +168,24 @@ class RSIFeature(BaseFeature):
         """
         rsi_values = self.calculate(data)
         
-        # Calculate price and RSI trends
-        price_trend = data['close'].rolling(window=lookback).apply(
-            lambda x: 1 if x.iloc[-1] > x.iloc[0] else -1, raw=False
+        # Calculate price and RSI trends using rolling windows
+        price_trend = data.select(
+            pl.col('close').rolling_mean(window_size=lookback).alias('price_trend')
         )
-        rsi_trend = rsi_values.rolling(window=lookback).apply(
-            lambda x: 1 if x.iloc[-1] > x.iloc[0] else -1, raw=False
-        )
+        rsi_trend = rsi_values.rolling_mean(window_size=lookback)
         
-        # Divergence signals
-        bullish_divergence = (price_trend == -1) & (rsi_trend == 1)  # Price down, RSI up
-        bearish_divergence = (price_trend == 1) & (rsi_trend == -1)  # Price up, RSI down
+        # Calculate divergence signals
+        bullish_divergence = (price_trend['price_trend'].shift(1) > price_trend['price_trend']) & \
+                           (rsi_trend.shift(1) < rsi_trend)
+        bearish_divergence = (price_trend['price_trend'].shift(1) < price_trend['price_trend']) & \
+                           (rsi_trend.shift(1) > rsi_trend)
         
         return {
             'bullish_divergence': bullish_divergence,
             'bearish_divergence': bearish_divergence
         }
     
-    def get_rsi_level(self, data: pd.DataFrame) -> pd.Series:
+    def get_rsi_level(self, data: pl.DataFrame) -> pl.Series:
         """
         Get RSI level classification (oversold, neutral, overbought).
         
@@ -164,13 +197,13 @@ class RSIFeature(BaseFeature):
         """
         rsi_values = self.calculate(data)
         
-        level = pd.Series(1, index=data.index)  # Default to neutral
-        level[rsi_values < self.oversold] = 0  # Oversold
-        level[rsi_values > self.overbought] = 2  # Overbought
+        level = pl.Series([1] * len(rsi_values))  # Default to neutral
+        level = pl.when(rsi_values < self.oversold).then(0).otherwise(level)
+        level = pl.when(rsi_values > self.overbought).then(2).otherwise(level)
         
         return level
     
-    def get_normalized_rsi(self, data: pd.DataFrame) -> pd.Series:
+    def get_normalized_rsi(self, data: pl.DataFrame) -> pl.Series:
         """
         Get RSI values normalized to 0-1 scale.
         

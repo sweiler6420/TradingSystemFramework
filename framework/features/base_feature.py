@@ -7,7 +7,7 @@ or machine learning models.
 """
 
 from abc import ABC, abstractmethod
-import pandas as pd
+import polars as pl
 import numpy as np
 from typing import Dict, Any, Optional, Union
 
@@ -35,7 +35,7 @@ class BaseFeature(ABC):
         self.is_calculated = False
         
     @abstractmethod
-    def calculate(self, data: pd.DataFrame) -> pd.Series:
+    def calculate(self, data: pl.DataFrame) -> pl.Series:
         """
         Calculate the feature values.
         
@@ -47,7 +47,7 @@ class BaseFeature(ABC):
         """
         pass
     
-    def get_values(self, data: pd.DataFrame, recalculate: bool = False) -> pd.Series:
+    def get_values(self, data: pl.DataFrame, recalculate: bool = False) -> pl.Series:
         """
         Get feature values, calculating if necessary.
         
@@ -73,7 +73,7 @@ class BaseFeature(ABC):
         self.params.update(params)
         self.is_calculated = False  # Mark for recalculation
     
-    def validate_data(self, data: pd.DataFrame) -> bool:
+    def validate_data(self, data: pl.DataFrame) -> bool:
         """
         Validate that the data contains required columns.
         

@@ -5,7 +5,7 @@ Value at Risk Measure
 Calculate Value at Risk (VaR) at specified confidence level.
 """
 
-import pandas as pd
+import polars as pl
 import numpy as np
 from framework.performance.measures import BaseMeasure
 
@@ -19,6 +19,6 @@ class VaRMeasure(BaseMeasure):
         super().__init__("Value at Risk")
         self.confidence_level = confidence_level
     
-    def calculate(self, returns: pd.Series, **kwargs) -> float:
+    def calculate(self, returns: pl.Series, **kwargs) -> float:
         confidence_level = kwargs.get('confidence_level', self.confidence_level)
-        return np.percentile(returns, confidence_level * 100)
+        return np.percentile(returns.to_numpy(), confidence_level * 100)

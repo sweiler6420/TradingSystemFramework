@@ -5,7 +5,7 @@ Total Return Measure
 Calculate total log return.
 """
 
-import pandas as pd
+import polars as pl
 import numpy as np
 from framework.performance.measures import BaseMeasure
 
@@ -16,5 +16,5 @@ class TotalReturnMeasure(BaseMeasure):
     def __init__(self):
         super().__init__("Total Return")
     
-    def calculate(self, returns: pd.Series, **kwargs) -> float:
+    def calculate(self, returns: pl.Series, **kwargs) -> float:
         return returns.sum()

@@ -135,14 +135,14 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-import pandas as pd
+import polars as pl
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 
 # Framework imports
 from framework import (
-    DataHandler, SignalBasedStrategy, SignalBasedOptimizer,
+    DataHandler, SignalBasedStrategy,
     RSIFeature, DonchianFeature, PositionState, SignalChange
 )
 from framework.performance import (
@@ -170,7 +170,7 @@ def run_insample_excellence_test():
     data_handler.filter_date_range(2023, 2024)
     data = data_handler.get_data()
     
-    print(f"Data loaded: {{data.shape[0]}} rows from {{data.index[0]}} to {{data.index[-1]}}")
+    print(f"Data loaded: {{data.height}} rows from {{data['timestamp'][0]}} to {{data['timestamp'][-1]}}")
     
     # Create strategy
     strategy = {clean_name.title().replace("_", "")}Strategy()
@@ -223,23 +223,23 @@ if __name__ == "__main__":
 Strategy implementation for {project_name} research project.
 """
 
-import pandas as pd
+import polars as pl
 import numpy as np
-from framework import SignalBasedStrategy, RSIFeature
+from framework import SignalBasedStrategy, SignalChange
 
 
 class {clean_name.title().replace("_", "")}Strategy(SignalBasedStrategy):
     """Strategy implementation for {project_name} research"""
     
     def __init__(self, **kwargs):
-        super().__init__("{project_name.title()}", long_only=kwargs.get('long_only', False))
+        super().__init__("{project_name.title()}")
         # Initialize your strategy parameters here
         pass
     
-    def generate_raw_signals(self, data: pd.DataFrame, **kwargs) -> pd.Series:
+    def generate_raw_signals(self, data: pl.DataFrame, **kwargs) -> pl.Series:
         """Generate raw trading signals"""
         # Implement your strategy logic here
-        signals = pd.Series(0, index=data.index)
+        signals = pl.Series([SignalChange.NO_CHANGE] * len(data))
         return signals
 '''
     

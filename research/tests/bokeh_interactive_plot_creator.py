@@ -8,7 +8,7 @@ for web-based interactive visualizations with excellent built-in saving.
 
 import os
 import numpy as np
-import pandas as pd
+import polars as pl
 from typing import Dict, Any, Optional
 from framework.signals import PositionState, SignalChange
 
@@ -19,7 +19,7 @@ class BokehInteractivePlotCreator:
     def __init__(self, plots_dir: str):
         self.plots_dir = plots_dir
         
-    def create_interactive_analysis(self, data: pd.DataFrame, signal_result, 
+    def create_interactive_analysis(self, data: pl.DataFrame, signal_result, 
                                    results: Dict[str, Any], test_name: str = "analysis", 
                                    show_plot: bool = True, version_manager=None) -> Optional[str]:
         """Create interactive analysis using Bokeh"""
@@ -35,8 +35,13 @@ class BokehInteractivePlotCreator:
             print(f"\n=== CREATING BOKEH INTERACTIVE PLOT ===")
             
             # Prepare data
-            data_copy = data.copy()
-            data_copy['timestamp'] = pd.to_datetime(data_copy.index)
+            data_copy = data.clone()
+            # Add timestamp column if not present
+            if 'timestamp' not in data_copy.columns:
+                data_copy = data_copy.with_row_index('row_index')
+                data_copy = data_copy.with_columns(
+                    pl.col('row_index').cast(pl.Datetime).alias('timestamp')
+                )
             
             # Create output file with versioning
             if version_manager:
@@ -64,23 +69,39 @@ class BokehInteractivePlotCreator:
                    line_width=2, color=colors[0], legend_label="Price")
             
             # Signal markers (optimized with ColumnDataSource)
-            plot_data = signal_result.get_signal_changes_for_plotting()
+            plot_data = signal_result.get_signal_changes_for_plotting(data_copy)
             if len(plot_data) > 0:
-                # Group signals by type for efficient plotting
-                signal_groups = {}
-                for _, row in plot_data.iterrows():
-                    signal_type = row['signal_change']
-                    if signal_type not in signal_groups:
-                        signal_groups[signal_type] = {'timestamps': [], 'prices': []}
-                    signal_groups[signal_type]['timestamps'].append(row['timestamp'])
-                    signal_groups[signal_type]['prices'].append(data_copy.loc[row['timestamp'], 'close'])
+                # Convert to lists for filtering
+                timestamps = plot_data['timestamp'].to_list()
+                prices = plot_data['price'].to_list()
+                signal_changes = plot_data['signal_change'].to_list()
                 
-                # Plot each signal type as a single scatter plot
-                for signal_type, data_group in signal_groups.items():
-                    if len(data_group['timestamps']) > 0:
-                        p1.scatter(data_group['timestamps'], data_group['prices'], 
-                                 size=12, color=signal_type.plot_color,
-                                 legend_label=str(signal_type), alpha=0.8)
+                # Separate signals by type
+                entry_timestamps = []
+                entry_prices = []
+                exit_timestamps = []
+                exit_prices = []
+                
+                for i, signal in enumerate(signal_changes):
+                    signal_str = str(signal)
+                    if 'TO_LONG' in signal_str or 'TO_SHORT' in signal_str:
+                        entry_timestamps.append(timestamps[i])
+                        entry_prices.append(prices[i])
+                    elif 'TO_NEUTRAL' in signal_str:
+                        exit_timestamps.append(timestamps[i])
+                        exit_prices.append(prices[i])
+                
+                # Plot entry signals (up arrows)
+                if entry_timestamps:
+                    p1.scatter(entry_timestamps, entry_prices, 
+                             size=15, color='green', marker='triangle', 
+                             legend_label="Entry Signals", alpha=0.8)
+                
+                # Plot exit signals (down arrows)  
+                if exit_timestamps:
+                    p1.scatter(exit_timestamps, exit_prices, 
+                             size=15, color='orange', marker='inverted_triangle', 
+                             legend_label="Exit Signals", alpha=0.8)
             
             p1.legend.location = "top_left"
             p1.legend.click_policy = "hide"
@@ -98,11 +119,7 @@ class BokehInteractivePlotCreator:
             
             # Position areas (optimized, no warnings)
             # Convert to numeric values once for efficiency
-            numeric_positions = signal_result.position_signals.map({
-                PositionState.LONG: 1,
-                PositionState.SHORT: -1,
-                PositionState.NEUTRAL: 0
-            }).astype(float)
+            numeric_positions = signal_result.position_signals.cast(pl.Float64)
             
             p2.line(data_copy['timestamp'], numeric_positions, 
                    line_width=2, color=colors[1], legend_label="Position")
@@ -111,22 +128,21 @@ class BokehInteractivePlotCreator:
             long_mask = numeric_positions == 1
             short_mask = numeric_positions == -1
             
-            p2.varea(data_copy['timestamp'], 0, 
+            p2.varea(data_copy['timestamp'], 0.5, 
                     np.where(long_mask, 1, np.nan),
                     color='green', alpha=0.3, legend_label="Long")
             
-            p2.varea(data_copy['timestamp'], 0, 
+            p2.varea(data_copy['timestamp'], -0.5, 
                     np.where(short_mask, -1, np.nan),
                     color='red', alpha=0.3, legend_label="Short")
             
-            p2.varea(data_copy['timestamp'], 0, 
-                    np.where(numeric_positions == 0, 0, np.nan),
+            p2.varea(data_copy['timestamp'], -0.5, 0.5, 
                     color='gray', alpha=0.3, legend_label="Neutral")
             
             p2.legend.location = "top_left"
             p2.legend.click_policy = "hide"
             p2.yaxis.axis_label = "Position"
-            p2.y_range = Range1d(-1.2, 1.2)
+            p2.y_range = Range1d(-1.5, 1.5)
             
             # 3. Equity Curve Plot
             p3 = figure(
@@ -139,14 +155,10 @@ class BokehInteractivePlotCreator:
             )
             
             # Calculate returns (optimized conversion, no warnings)
-            numeric_signals = signal_result.position_signals.map({
-                PositionState.LONG: 1,
-                PositionState.SHORT: -1,
-                PositionState.NEUTRAL: 0
-            }).astype(float)
+            numeric_signals = signal_result.position_signals.cast(pl.Float64)
             returns = numeric_signals * np.log(data_copy['close']).diff().shift(-1)
-            cumulative_returns = (1 + returns).cumprod()
-            buy_hold_returns = (1 + np.log(data_copy['close']).diff().shift(-1)).cumprod()
+            cumulative_returns = (1 + returns).cum_prod()
+            buy_hold_returns = (1 + np.log(data_copy['close']).diff().shift(-1)).cum_prod()
             
             p3.line(data_copy['timestamp'], cumulative_returns, 
                    line_width=2, color=colors[2], legend_label="Strategy")
@@ -176,11 +188,11 @@ class BokehInteractivePlotCreator:
             win_rate = results.get('win_rate', 0)
             
             # Add performance text
-            p4.text(x=data_copy['timestamp'].iloc[0], y=0.5,
+            p4.text(x=data_copy['timestamp'][0], y=0.5,
                    text=[f"PF: {pf:.4f} | Sharpe: {sharpe:.4f} | Sortino: {sortino:.4f}"],
                    text_font_size="12pt", text_color="black")
             
-            p4.text(x=data_copy['timestamp'].iloc[0], y=0.3,
+            p4.text(x=data_copy['timestamp'][0], y=0.3,
                    text=[f"Max DD: {max_dd:.4f} | Total Return: {total_return:.4f} | Win Rate: {win_rate:.4f}"],
                    text_font_size="12pt", text_color="black")
             
@@ -229,7 +241,7 @@ class BokehInteractivePlotCreator:
             print(f"Error creating Bokeh plot: {e}")
             return None
     
-    def create_simple_interactive(self, data: pd.DataFrame, signal_result, 
+    def create_simple_interactive(self, data: pl.DataFrame, signal_result, 
                                 results: Dict[str, Any], test_name: str = "analysis", 
                                 show_plot: bool = True, version_manager=None) -> Optional[str]:
         """Create a simple interactive plot using Bokeh"""
@@ -242,8 +254,13 @@ class BokehInteractivePlotCreator:
             print(f"\n=== CREATING SIMPLE BOKEH PLOT ===")
             
             # Prepare data
-            data_copy = data.copy()
-            data_copy['timestamp'] = pd.to_datetime(data_copy.index)
+            data_copy = data.clone()
+            # Add timestamp column if not present
+            if 'timestamp' not in data_copy.columns:
+                data_copy = data_copy.with_row_index('row_index')
+                data_copy = data_copy.with_columns(
+                    pl.col('row_index').cast(pl.Datetime).alias('timestamp')
+                )
             
             # Create output file with versioning
             if version_manager:
@@ -268,15 +285,39 @@ class BokehInteractivePlotCreator:
                    line_width=2, color='blue', legend_label="Price")
             
             # Signal markers
-            plot_data = signal_result.get_signal_changes_for_plotting()
+            plot_data = signal_result.get_signal_changes_for_plotting(data_copy)
             if len(plot_data) > 0:
-                for _, row in plot_data.iterrows():
-                    signal_type = row['signal_change']
-                    price = data_copy.loc[row['timestamp'], 'close']
-                    
-                    p.scatter([row['timestamp']], [price], 
-                             size=12, color=signal_type.plot_color,
-                             legend_label=str(signal_type), alpha=0.8)
+                # Convert to lists for filtering
+                timestamps = plot_data['timestamp'].to_list()
+                prices = plot_data['price'].to_list()
+                signal_changes = plot_data['signal_change'].to_list()
+                
+                # Separate signals by type
+                entry_timestamps = []
+                entry_prices = []
+                exit_timestamps = []
+                exit_prices = []
+                
+                for i, signal in enumerate(signal_changes):
+                    signal_str = str(signal)
+                    if 'TO_LONG' in signal_str or 'TO_SHORT' in signal_str:
+                        entry_timestamps.append(timestamps[i])
+                        entry_prices.append(prices[i])
+                    elif 'TO_NEUTRAL' in signal_str:
+                        exit_timestamps.append(timestamps[i])
+                        exit_prices.append(prices[i])
+                
+                # Plot entry signals (up arrows)
+                if entry_timestamps:
+                    p.scatter(entry_timestamps, entry_prices, 
+                             size=15, color='green', marker='triangle', 
+                             legend_label="Entry Signals", alpha=0.8)
+                
+                # Plot exit signals (down arrows)  
+                if exit_timestamps:
+                    p.scatter(exit_timestamps, exit_prices, 
+                             size=15, color='orange', marker='inverted_triangle', 
+                             legend_label="Exit Signals", alpha=0.8)
             
             p.legend.location = "top_left"
             p.legend.click_policy = "hide"

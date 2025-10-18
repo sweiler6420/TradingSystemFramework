@@ -1,8 +1,8 @@
 """
-Mach1_Rsi_Breakout Research Script
+Mach2_Rsi_Testing Research Script
 ====================================
 
-Main research script for mach1_rsi_breakout.
+Main research script for mach2_rsi_testing.
 """
 
 import sys
@@ -30,24 +30,22 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from tests.insample_excellence_test import InSampleExcellenceTest
 
 # Import project-specific strategy
-from strategies.mach1_rsi_breakout_strategy import Mach1RsiBreakoutStrategy
+from strategies.mach2_rsi_testing_strategy import Mach2RsiTestingStrategy
 
 
 def run_insample_excellence_test():
     """Run in-sample excellence test (proof of concept)"""
-    print("=== MACH1_RSI_BREAKOUT RESEARCH - IN-SAMPLE EXCELLENCE TEST ===")
+    print("=== MACH2_RSI_TESTING RESEARCH - IN-SAMPLE EXCELLENCE TEST ===")
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
     # Load data
-    data_handler = DataHandler(os.path.join(os.path.dirname(__file__), '..', '..', 'framework', 'data', 'BTCUSD1hour.pq'))
+    data_handler = DataHandler('framework/data/BTCUSD1hour.pq')
     data_handler.load_data()
     data_handler.filter_date_range(2023, 2024)
     data = data_handler.get_data()
     
-    print(f"Data loaded: {data.shape[0]} rows from {data['timestamp'][0]} to {data['timestamp'][-1]}")
-    
     # Create strategy
-    strategy = Mach1RsiBreakoutStrategy()
+    strategy = Mach2RsiTestingStrategy()
     
     # Initialize the standardized test
     test = InSampleExcellenceTest(os.path.dirname(__file__))
@@ -59,26 +57,26 @@ def run_insample_excellence_test():
     signal_result = strategy.generate_signals()
     test.create_performance_plots(data, signal_result, test_metadata['performance_results'])
     
-    # Generate report
+    # # Generate report
     test.generate_test_report(test_metadata)
     
-    print(f"\n=== MACH1_RSI_BREAKOUT RESEARCH COMPLETED ===")
+    print(f"\n=== MACH2_RSI_TESTING RESEARCH COMPLETED ===")
     print("Check the following directories for results:")
     print("- results/ - Performance metrics and metadata")
     print("- plots/ - Visualization charts")
     print("- README.md - Project documentation")
     
-    return test_metadata
+    return False
 
 
 def main():
     """Main research function"""
-    print("Starting mach1_rsi_breakout research...")
+    print("Starting mach2_rsi_testing research...")
     
     # Run in-sample excellence test
     results = run_insample_excellence_test()
     
-    print(f"\nmach1_rsi_breakout research completed!")
+    print(f"\nmach2_rsi_testing research completed!")
     print("Check the results/ and plots/ directories for outputs.")
 
 

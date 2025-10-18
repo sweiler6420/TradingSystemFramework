@@ -5,10 +5,10 @@ Base Strategy with Signal System
 A base strategy class that uses the standardized signal system.
 """
 
-import pandas as pd
+import polars as pl
 import numpy as np
 from typing import Dict, Any, Optional, Tuple
-from framework.strategies.base_strategy import BaseStrategy, Optimizer
+from framework.strategies.base_strategy import BaseStrategy
 from framework.signals import (
     PositionState, SignalChange, SignalResult, SignalManager,
     plot_signals, plot_position_states, calculate_strategy_returns
@@ -18,23 +18,54 @@ from framework.signals import (
 class SignalBasedStrategy(BaseStrategy):
     """Base strategy class that uses the standardized signal system"""
     
-    def __init__(self, name: str, long_only: bool = False):
+    def __init__(self, name: str):
         super().__init__(name)
-        self.signal_manager = SignalManager(long_only=long_only)
-        self.long_only = long_only
+        self.signal_manager = SignalManager()
         
-    def generate_signals(self, **kwargs) -> SignalResult:
+    def generate_signals(self, data: Optional[pl.DataFrame] = None, **kwargs) -> SignalResult:
         """Generate signals using the standardized signal system
         
-        This method should be implemented by subclasses to generate raw signals.
+        This method generates raw signals and processes them through the signal system.
         The base class handles position management and signal changes.
+        
+        Args:
+            data: Price data (optional, uses self.data if not provided)
+            **kwargs: Strategy-specific parameters
         
         Returns:
             SignalResult: Contains position signals and signal changes
         """
-        return self._generate_signals_internal(self.data, **kwargs)
+        # Use provided data or fall back to self.data
+        if data is None:
+            data = self.data
+
+        # Generate raw signals
+        raw_signals = self.generate_raw_signal(data, **kwargs)
+        
+        # Auto-detect signal type - check the actual values, not the types
+        if isinstance(raw_signals[0], SignalChange):
+            signal_type = SignalChange
+        elif isinstance(raw_signals[0], PositionState):
+            signal_type = PositionState
+        else:
+            # If it's a string, check if it matches SignalChange values
+            first_signal_str = str(raw_signals[0])
+            if first_signal_str in [e.value for e in SignalChange]:
+                signal_type = SignalChange
+            elif first_signal_str in [str(e.value) for e in PositionState]:
+                signal_type = PositionState
+            else:
+                signal_type = SignalChange  # Default to SignalChange
+        
+        # Generate exit conditions
+        exit_conditions = self.generate_exit_conditions(data, **kwargs)
+        
+        # Use signal manager to generate position signals and changes
+        signal_result = self.signal_manager.generate_signals(raw_signals, exit_conditions, signal_type)
+        
+        return signal_result
     
-    def generate_raw_signals(self, data: pd.DataFrame, **kwargs) -> pd.Series:
+    def generate_raw_signal(self, data: pl.DataFrame, **kwargs) -> pl.Series:
         """Generate raw trading signals using SignalChange enums
         
         This method should be implemented by subclasses.
@@ -44,11 +75,12 @@ class SignalBasedStrategy(BaseStrategy):
             **kwargs: Strategy-specific parameters
             
         Returns:
-            pd.Series: SignalChange enums (NEUTRAL_TO_LONG, LONG_TO_NEUTRAL, etc.)
+            pl.Series: SignalChange enums (NEUTRAL_TO_LONG, LONG_TO_NEUTRAL, etc.)
         """
-        raise NotImplementedError("Subclasses must implement generate_raw_signals")
+        raise NotImplementedError("Subclasses must implement generate_raw_signal_change")
+
     
-    def generate_exit_conditions(self, data: pd.DataFrame, **kwargs) -> Optional[pd.Series]:
+    def generate_exit_conditions(self, data: pl.DataFrame, **kwargs) -> Optional[pl.Series]:
         """Generate exit conditions (True = exit position)
         
         This method can be overridden by subclasses for custom exit logic.
@@ -58,104 +90,36 @@ class SignalBasedStrategy(BaseStrategy):
             **kwargs: Strategy-specific parameters
             
         Returns:
-            Optional[pd.Series]: Exit conditions (True = exit, False/None = hold)
+            Optional[pl.Series]: Exit conditions (True = exit, False/None = hold)
         """
         return None
     
-    def _generate_signals_internal(self, data: pd.DataFrame, **kwargs) -> SignalResult:
-        """Internal method to generate signals using the signal system"""
-        
-        # Generate raw signals
-        raw_signals = self.generate_raw_signals(data, **kwargs)
-        
-        # Generate exit conditions
-        exit_conditions = self.generate_exit_conditions(data, **kwargs)
-        
-        # Use signal manager to generate position signals and changes
-        signal_result = self.signal_manager.generate_signals(raw_signals, exit_conditions)
-        
-        return signal_result
     
-    def _calculate_strategy_returns(self, data: pd.DataFrame, signal_result: SignalResult) -> pd.Series:
+    def _calculate_strategy_returns(self, data: pl.DataFrame, signal_result: SignalResult) -> pl.Series:
         """Calculate strategy returns from signal result"""
         return calculate_strategy_returns(data, signal_result)
+
     
-    def plot_strategy_signals(self, data: pd.DataFrame, signal_result: SignalResult, 
-                             title: Optional[str] = None, ax=None) -> None:
+    def plot_strategy_signals(self, data: pl.DataFrame, signal_result: SignalResult, title: Optional[str] = None, ax=None) -> None:
         """Plot strategy signals using the standardized system"""
         if title is None:
             title = f"{self.name} - Signals"
         plot_signals(data, signal_result, title, ax)
+
     
-    def plot_strategy_positions(self, data: pd.DataFrame, signal_result: SignalResult, 
-                               title: Optional[str] = None, ax=None) -> None:
+    def plot_strategy_positions(self, data: pl.DataFrame, signal_result: SignalResult, title: Optional[str] = None, ax=None) -> None:
         """Plot strategy position states using the standardized system"""
         if title is None:
             title = f"{self.name} - Position States"
         plot_position_states(data, signal_result, title, ax)
+
     
     def get_strategy_summary(self, signal_result: SignalResult) -> Dict[str, Any]:
         """Get a summary of the strategy's signal behavior"""
         return {
             'position_counts': signal_result.get_position_counts(),
             'signal_change_counts': signal_result.get_signal_change_counts(),
-            'total_signals': len(signal_result.signal_changes.dropna()),
-            'strategy_type': 'Long-Only' if self.long_only else 'Long-Short'
+            'total_signals': len(signal_result.signal_changes.drop_nulls()),
         }
 
 
-class SignalBasedOptimizer(Optimizer):
-    """Base optimizer class for signal-based strategies"""
-    
-    def optimize(self, data: pd.DataFrame, strategy: SignalBasedStrategy, **kwargs) -> Dict[str, Any]:
-        """Optimize signal-based strategy parameters"""
-        
-        best_params = {}
-        best_performance = -np.inf
-        
-        # Get parameter ranges from kwargs
-        param_ranges = self._get_parameter_ranges(**kwargs)
-        
-        # Test all parameter combinations
-        for params in self._generate_parameter_combinations(param_ranges):
-            
-            # Generate signals with these parameters
-            signal_result = strategy._generate_signals_internal(data, **params)
-            
-            # Calculate performance
-            returns = strategy._calculate_strategy_returns(data, signal_result)
-            performance = self._calculate_performance_metric(returns)
-            
-            if performance > best_performance:
-                best_performance = performance
-                best_params = params.copy()
-                best_params['performance'] = performance
-        
-        return best_params
-    
-    def _get_parameter_ranges(self, **kwargs) -> Dict[str, list]:
-        """Get parameter ranges from kwargs - override in subclasses"""
-        return {}
-    
-    def _generate_parameter_combinations(self, param_ranges: Dict[str, list]) -> list:
-        """Generate all parameter combinations"""
-        import itertools
-        
-        if not param_ranges:
-            return [{}]
-        
-        keys = list(param_ranges.keys())
-        values = list(param_ranges.values())
-        
-        combinations = []
-        for combo in itertools.product(*values):
-            combinations.append(dict(zip(keys, combo)))
-        
-        return combinations
-    
-    def _calculate_performance_metric(self, returns: pd.Series) -> float:
-        """Calculate performance metric - override in subclasses"""
-        # Default: profit factor
-        winning_trades = returns[returns > 0].sum()
-        losing_trades = returns[returns < 0].abs().sum()
-        return winning_trades / losing_trades if losing_trades > 0 else 0

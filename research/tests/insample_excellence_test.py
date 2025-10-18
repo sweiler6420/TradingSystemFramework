@@ -5,7 +5,7 @@ In-Sample Excellence Test Implementation
 A standardized test for proof-of-concept validation using Bokeh for interactive plots.
 """
 
-import pandas as pd
+import polars as pl
 import numpy as np
 from datetime import datetime
 from typing import Dict, Any, Tuple
@@ -13,7 +13,7 @@ import os
 
 # Framework imports
 from framework import (
-    DataHandler, SignalBasedStrategy, SignalBasedOptimizer,
+    DataHandler, SignalBasedStrategy,
     RSIFeature, DonchianFeature, PositionState, SignalChange
 )
 from framework.performance import (
@@ -69,7 +69,7 @@ class InSampleExcellenceTest:
         
         # Get data
         data = data_handler.get_data()
-        print(f"Data loaded: {data.shape[0]} rows from {data.index[0]} to {data.index[-1]}")
+        print(f"Data loaded: {data.shape[0]} rows from {data['timestamp'][0]} to {data['timestamp'][-1]}")
         print(f"Price range: ${data['close'].min():.2f} - ${data['close'].max():.2f}")
         
         # Set strategy data
@@ -80,7 +80,6 @@ class InSampleExcellenceTest:
         
         # Get strategy summary
         summary = strategy.get_strategy_summary(signal_result)
-        print(f"\nStrategy Type: {summary['strategy_type']}")
         print(f"Position Counts: {summary['position_counts']}")
         print(f"Signal Changes: {summary['signal_change_counts']}")
         print(f"Total Signals: {summary['total_signals']}")
@@ -103,7 +102,7 @@ class InSampleExcellenceTest:
             'test_name': test_name,
             'strategy_name': strategy.name,
             'test_date': datetime.now().isoformat(),
-            'data_period': f"{data.index[0]} to {data.index[-1]}",
+            'data_period': f"{data['timestamp'][0]} to {data['timestamp'][-1]}",
             'data_points': len(data),
             'strategy_summary': summary,
             'performance_results': results
@@ -117,7 +116,7 @@ class InSampleExcellenceTest:
         
         return test_metadata
     
-    def create_performance_plots(self, data: pd.DataFrame, signal_result, 
+    def create_performance_plots(self, data: pl.DataFrame, signal_result, 
                                 results: Dict[str, Any], test_name: str = "insample_excellence", 
                                 show_plot: bool = True):
         """Create comprehensive performance visualization plots using Bokeh"""
@@ -150,9 +149,9 @@ class InSampleExcellenceTest:
         versioned_base = self.version_manager.get_versioned_filename(test_name, prefix="V")
         
         # Save performance results as CSV
-        results_df = pd.DataFrame([test_metadata['performance_results']])
+        results_df = pl.DataFrame([test_metadata['performance_results']])
         results_file = os.path.join(self.results_dir, f"{versioned_base}_results.csv")
-        results_df.to_csv(results_file, index=False)
+        results_df.write_csv(results_file)
         
         # Save metadata as JSON
         metadata_file = os.path.join(self.results_dir, f"{versioned_base}_metadata.json")
@@ -188,7 +187,6 @@ class InSampleExcellenceTest:
 
 ## Strategy Summary
 
-- **Strategy Type:** {test_metadata['strategy_summary']['strategy_type']}
 - **Total Signals:** {test_metadata['strategy_summary']['total_signals']}
 - **Position Counts:** {test_metadata['strategy_summary']['position_counts']}
 

@@ -5,7 +5,7 @@ Conditional Value at Risk Measure
 Calculate Conditional Value at Risk (CVaR) at specified confidence level.
 """
 
-import pandas as pd
+import polars as pl
 import numpy as np
 from framework.performance.measures import BaseMeasure
 
@@ -19,7 +19,7 @@ class CVaRMeasure(BaseMeasure):
         super().__init__("Conditional Value at Risk")
         self.confidence_level = confidence_level
     
-    def calculate(self, returns: pd.Series, **kwargs) -> float:
+    def calculate(self, returns: pl.Series, **kwargs) -> float:
         confidence_level = kwargs.get('confidence_level', self.confidence_level)
-        var = np.percentile(returns, confidence_level * 100)
-        return returns[returns <= var].mean()
+        var = np.percentile(returns.to_numpy(), confidence_level * 100)
+        return returns.filter(returns <= var).mean()
