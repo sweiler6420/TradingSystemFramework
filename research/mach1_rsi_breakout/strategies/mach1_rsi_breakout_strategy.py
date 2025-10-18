@@ -8,7 +8,7 @@ and exits when RSI breaks below overbought levels.
 
 import pandas as pd
 import numpy as np
-from framework import SignalBasedStrategy, RSIFeature
+from framework import SignalBasedStrategy, RSIFeature, SignalChange
 
 
 class Mach1RsiBreakoutStrategy(SignalBasedStrategy):
@@ -23,7 +23,7 @@ class Mach1RsiBreakoutStrategy(SignalBasedStrategy):
         self.position = 0  # Track current position
     
     def generate_raw_signals(self, data: pd.DataFrame, **kwargs) -> pd.Series:
-        """Generate RSI breakout signals"""
+        """Generate RSI breakout signals using SignalChange enums"""
         
         # Override parameters if provided
         rsi_period = kwargs.get('rsi_period', self.rsi_period)
@@ -38,8 +38,8 @@ class Mach1RsiBreakoutStrategy(SignalBasedStrategy):
         # Get RSI values
         rsi_values = self.rsi_feature.calculate(data)
         
-        # Create signals for breakout strategy
-        signals = pd.Series(0, index=data.index)
+        # Create signals for breakout strategy using SignalChange enums
+        signals = pd.Series(SignalChange.NO_CHANGE, index=data.index)
         
         # RSI Breakout Logic:
         # Enter long when RSI breaks above oversold level (coming out of oversold)
@@ -51,12 +51,12 @@ class Mach1RsiBreakoutStrategy(SignalBasedStrategy):
             
             # Enter long position: RSI was oversold and now breaks above oversold
             if (previous_rsi <= oversold and current_rsi > oversold and self.position == 0):
-                signals.iloc[i] = 1
+                signals.iloc[i] = SignalChange.NEUTRAL_TO_LONG
                 self.position = 1
             
             # Exit long position: RSI was overbought and now breaks below overbought
             elif (previous_rsi >= overbought and current_rsi < overbought and self.position == 1):
-                signals.iloc[i] = -1
+                signals.iloc[i] = SignalChange.LONG_TO_NEUTRAL
                 self.position = 0
         
         return signals

@@ -32,15 +32,15 @@ class PositionState(Enum):
 
 class SignalChange(Enum):
     """Signal changes for plotting and analysis"""
-    # Long position changes
+    # Position changes
     NEUTRAL_TO_LONG = "NEUTRAL_TO_LONG"      # Enter long from cash
-    SHORT_TO_LONG = "SHORT_TO_LONG"          # Switch from short to long
+    NEUTRAL_TO_SHORT = "NEUTRAL_TO_SHORT"    # Enter short from cash
     LONG_TO_NEUTRAL = "LONG_TO_NEUTRAL"      # Exit long to cash
     LONG_TO_SHORT = "LONG_TO_SHORT"          # Switch from long to short
-    
-    # Short position changes  
-    NEUTRAL_TO_SHORT = "NEUTRAL_TO_SHORT"    # Enter short from cash
     SHORT_TO_NEUTRAL = "SHORT_TO_NEUTRAL"    # Exit short to cash
+    SHORT_TO_LONG = "SHORT_TO_LONG"          # Switch from short to long
+    NO_CHANGE = "NO_CHANGE"                  # No position change   
+    
     
     def __str__(self):
         return self.value
@@ -142,33 +142,38 @@ class SignalManager:
     
     def generate_signals(self, raw_signals: pd.Series, 
                         exit_conditions: Optional[pd.Series] = None) -> SignalResult:
-        """Generate position signals and signal changes from raw signals
+        """Generate position signals and signal changes from SignalChange enums
         
         Args:
-            raw_signals: Raw trading signals (1 for buy, -1 for sell, 0 for hold)
+            raw_signals: SignalChange enums (NEUTRAL_TO_LONG, LONG_TO_NEUTRAL, etc.)
             exit_conditions: Optional conditions for exiting positions (True = exit)
             
         Returns:
             SignalResult: Contains position signals and signal changes
         """
         
-        position_signals = pd.Series(0, index=raw_signals.index)
-        signal_changes = pd.Series(None, index=raw_signals.index, dtype=object)
+        position_signals = pd.Series(PositionState.NEUTRAL, index=raw_signals.index)
+        signal_changes = pd.Series(SignalChange.NO_CHANGE, index=raw_signals.index)
         
         self.current_position = PositionState.NEUTRAL
         
         for i in range(len(raw_signals)):
-            raw_signal = raw_signals.iloc[i]
+            signal_change = raw_signals.iloc[i]
             exit_condition = exit_conditions.iloc[i] if exit_conditions is not None else False
             
-            # Determine new position based on raw signal and current position
-            new_position, signal_change = self._determine_position_change(
-                raw_signal, exit_condition
-            )
+            # Handle exit conditions first
+            if exit_condition and self.current_position != PositionState.NEUTRAL:
+                if self.current_position == PositionState.LONG:
+                    signal_change = SignalChange.LONG_TO_NEUTRAL
+                elif self.current_position == PositionState.SHORT:
+                    signal_change = SignalChange.SHORT_TO_NEUTRAL
+            
+            # Apply signal change to determine new position
+            new_position = self._apply_signal_change(signal_change)
             
             # Update position
             self.current_position = new_position
-            position_signals.iloc[i] = new_position.value
+            position_signals.iloc[i] = self.current_position
             signal_changes.iloc[i] = signal_change
         
         return SignalResult(
@@ -177,44 +182,29 @@ class SignalManager:
             raw_signals=raw_signals
         )
     
-    def _determine_position_change(self, raw_signal: int, 
-                                 exit_condition: bool) -> Tuple[PositionState, Optional[SignalChange]]:
-        """Determine position change based on raw signal and current position"""
+    def _apply_signal_change(self, signal_change: SignalChange) -> PositionState:
+        """Apply signal change to determine new position"""
         
-        # Handle exit conditions first
-        if exit_condition and self.current_position != PositionState.NEUTRAL:
-            if self.current_position == PositionState.LONG:
-                return PositionState.NEUTRAL, SignalChange.LONG_TO_NEUTRAL
-            elif self.current_position == PositionState.SHORT:
-                return PositionState.NEUTRAL, SignalChange.SHORT_TO_NEUTRAL
-        
-        # Handle raw signals
-        if raw_signal == 1:  # Buy signal
-            if self.current_position == PositionState.NEUTRAL:
-                return PositionState.LONG, SignalChange.NEUTRAL_TO_LONG
-            elif self.current_position == PositionState.SHORT:
-                return PositionState.LONG, SignalChange.SHORT_TO_LONG
-            else:  # Already LONG
-                return PositionState.LONG, None  # No change
-                
-        elif raw_signal == -1:  # Sell signal
+        if signal_change == SignalChange.NEUTRAL_TO_LONG:
+            return PositionState.LONG
+        elif signal_change == SignalChange.NEUTRAL_TO_SHORT:
             if self.long_only:
-                # In long-only mode, sell signals exit to neutral
-                if self.current_position == PositionState.LONG:
-                    return PositionState.NEUTRAL, SignalChange.LONG_TO_NEUTRAL
-                else:
-                    return self.current_position, None  # No change
-            else:
-                # In long-short mode, sell signals enter short
-                if self.current_position == PositionState.NEUTRAL:
-                    return PositionState.SHORT, SignalChange.NEUTRAL_TO_SHORT
-                elif self.current_position == PositionState.LONG:
-                    return PositionState.SHORT, SignalChange.LONG_TO_SHORT
-                else:  # Already SHORT
-                    return PositionState.SHORT, None  # No change
-                    
-        else:  # No signal (raw_signal == 0)
-            return self.current_position, None  # No change
+                return PositionState.NEUTRAL  # Can't go short in long-only mode
+            return PositionState.SHORT
+        elif signal_change == SignalChange.LONG_TO_NEUTRAL:
+            return PositionState.NEUTRAL
+        elif signal_change == SignalChange.SHORT_TO_NEUTRAL:
+            return PositionState.NEUTRAL
+        elif signal_change == SignalChange.LONG_TO_SHORT:
+            if self.long_only:
+                return PositionState.NEUTRAL  # Can't go short in long-only mode
+            return PositionState.SHORT
+        elif signal_change == SignalChange.SHORT_TO_LONG:
+            return PositionState.LONG
+        elif signal_change == SignalChange.NO_CHANGE:
+            return self.current_position
+        else:
+            return self.current_position
 
 
 def plot_signals(data: pd.DataFrame, signal_result: SignalResult, 
@@ -314,22 +304,12 @@ def calculate_strategy_returns(data: pd.DataFrame, signal_result: SignalResult) 
     if 'return' not in data.columns:
         data['return'] = np.log(data['close']).diff().shift(-1)
     
-    return signal_result.position_signals * data['return']
-
-
-# Convenience functions for common signal patterns
-def create_buy_sell_signals(rsi_values: pd.Series, oversold: float = 30, 
-                           overbought: float = 70) -> pd.Series:
-    """Create buy/sell signals from RSI values"""
-    signals = pd.Series(0, index=rsi_values.index)
-    signals[rsi_values < oversold] = 1   # Buy when oversold
-    signals[rsi_values > overbought] = -1  # Sell when overbought
-    return signals
-
-
-def create_ma_crossover_signals(fast_ma: pd.Series, slow_ma: pd.Series) -> pd.Series:
-    """Create moving average crossover signals"""
-    signals = pd.Series(0, index=fast_ma.index)
-    signals[fast_ma > slow_ma] = 1   # Buy when fast > slow
-    signals[fast_ma < slow_ma] = -1  # Sell when fast < slow
-    return signals
+    # Convert PositionState enums to numeric values for return calculation (optimized)
+    # Use astype() to avoid pandas warnings
+    numeric_signals = signal_result.position_signals.map({
+        PositionState.LONG: 1,
+        PositionState.SHORT: -1,
+        PositionState.NEUTRAL: 0
+    }).astype(float)
+    
+    return numeric_signals * data['return']

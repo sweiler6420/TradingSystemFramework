@@ -63,16 +63,24 @@ class BokehInteractivePlotCreator:
             p1.line(data_copy['timestamp'], data_copy['close'], 
                    line_width=2, color=colors[0], legend_label="Price")
             
-            # Signal markers
+            # Signal markers (optimized with ColumnDataSource)
             plot_data = signal_result.get_signal_changes_for_plotting()
             if len(plot_data) > 0:
-                for i, (_, row) in enumerate(plot_data.iterrows()):
+                # Group signals by type for efficient plotting
+                signal_groups = {}
+                for _, row in plot_data.iterrows():
                     signal_type = row['signal_change']
-                    price = data_copy.loc[row['timestamp'], 'close']
-                    
-                    p1.scatter([row['timestamp']], [price], 
-                             size=12, color=signal_type.plot_color,
-                             legend_label=str(signal_type), alpha=0.8)
+                    if signal_type not in signal_groups:
+                        signal_groups[signal_type] = {'timestamps': [], 'prices': []}
+                    signal_groups[signal_type]['timestamps'].append(row['timestamp'])
+                    signal_groups[signal_type]['prices'].append(data_copy.loc[row['timestamp'], 'close'])
+                
+                # Plot each signal type as a single scatter plot
+                for signal_type, data_group in signal_groups.items():
+                    if len(data_group['timestamps']) > 0:
+                        p1.scatter(data_group['timestamps'], data_group['prices'], 
+                                 size=12, color=signal_type.plot_color,
+                                 legend_label=str(signal_type), alpha=0.8)
             
             p1.legend.location = "top_left"
             p1.legend.click_policy = "hide"
@@ -88,29 +96,31 @@ class BokehInteractivePlotCreator:
                 x_range=p1.x_range  # Link x-axis
             )
             
-            # Position areas
-            long_periods = signal_result.position_signals == PositionState.LONG.value
-            short_periods = signal_result.position_signals == PositionState.SHORT.value
-            neutral_periods = signal_result.position_signals == PositionState.NEUTRAL.value
+            # Position areas (optimized, no warnings)
+            # Convert to numeric values once for efficiency
+            numeric_positions = signal_result.position_signals.map({
+                PositionState.LONG: 1,
+                PositionState.SHORT: -1,
+                PositionState.NEUTRAL: 0
+            }).astype(float)
             
-            # Create position visualization
-            position_values = np.where(long_periods, 1, 
-                                    np.where(short_periods, -1, 0))
-            
-            p2.line(data_copy['timestamp'], position_values, 
+            p2.line(data_copy['timestamp'], numeric_positions, 
                    line_width=2, color=colors[1], legend_label="Position")
             
-            # Add area fills
+            # Add area fills (optimized)
+            long_mask = numeric_positions == 1
+            short_mask = numeric_positions == -1
+            
             p2.varea(data_copy['timestamp'], 0, 
-                    np.where(long_periods, 1, np.nan),
+                    np.where(long_mask, 1, np.nan),
                     color='green', alpha=0.3, legend_label="Long")
             
             p2.varea(data_copy['timestamp'], 0, 
-                    np.where(short_periods, -1, np.nan),
+                    np.where(short_mask, -1, np.nan),
                     color='red', alpha=0.3, legend_label="Short")
             
             p2.varea(data_copy['timestamp'], 0, 
-                    np.where(neutral_periods, 0, np.nan),
+                    np.where(numeric_positions == 0, 0, np.nan),
                     color='gray', alpha=0.3, legend_label="Neutral")
             
             p2.legend.location = "top_left"
@@ -128,8 +138,13 @@ class BokehInteractivePlotCreator:
                 x_range=p1.x_range  # Link x-axis
             )
             
-            # Calculate returns
-            returns = signal_result.position_signals * np.log(data_copy['close']).diff().shift(-1)
+            # Calculate returns (optimized conversion, no warnings)
+            numeric_signals = signal_result.position_signals.map({
+                PositionState.LONG: 1,
+                PositionState.SHORT: -1,
+                PositionState.NEUTRAL: 0
+            }).astype(float)
+            returns = numeric_signals * np.log(data_copy['close']).diff().shift(-1)
             cumulative_returns = (1 + returns).cumprod()
             buy_hold_returns = (1 + np.log(data_copy['close']).diff().shift(-1)).cumprod()
             

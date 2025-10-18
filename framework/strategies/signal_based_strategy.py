@@ -35,7 +35,7 @@ class SignalBasedStrategy(BaseStrategy):
         return self._generate_signals_internal(self.data, **kwargs)
     
     def generate_raw_signals(self, data: pd.DataFrame, **kwargs) -> pd.Series:
-        """Generate raw trading signals (1, -1, 0)
+        """Generate raw trading signals using SignalChange enums
         
         This method should be implemented by subclasses.
         
@@ -44,7 +44,7 @@ class SignalBasedStrategy(BaseStrategy):
             **kwargs: Strategy-specific parameters
             
         Returns:
-            pd.Series: Raw signals (1 for buy, -1 for sell, 0 for hold)
+            pd.Series: SignalChange enums (NEUTRAL_TO_LONG, LONG_TO_NEUTRAL, etc.)
         """
         raise NotImplementedError("Subclasses must implement generate_raw_signals")
     
