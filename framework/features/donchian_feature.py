@@ -27,43 +27,45 @@ class DonchianFeature(BaseFeature):
     - Support/resistance levels
     """
     
-    def __init__(self, lookback: int = 20, include_middle: bool = True):
+    def __init__(self, data: pl.DataFrame = None, lookback: int = 20, include_middle: bool = True):
         """
         Initialize Donchian feature.
         
         Args:
+            data: DataFrame with OHLCV data
             lookback: Number of periods to look back for highs/lows
             include_middle: Whether to include middle band (average of upper/lower)
         """
-        super().__init__(
-            name="Donchian",
-            lookback=lookback,
-            include_middle=include_middle
-        )
+        # Set attributes before calling super().__init__ to avoid calculation issues
         self.lookback = lookback
         self.include_middle = include_middle
         
-    def calculate(self, data: pl.DataFrame) -> pl.Series:
+        super().__init__(
+            name="Donchian",
+            data=data,
+            lookback=lookback,
+            include_middle=include_middle
+        )
+        
+    def calculate(self) -> pl.Series:
         """
-        Calculate Donchian Channel values.
+        Calculate Donchian Channel values using stored data.
         
-        Returns the middle band by default. Use get_bands() for all bands.
-        
-        Args:
-            data: DataFrame with OHLCV data
-            
         Returns:
             Series with Donchian middle band values
         """
-        if not self.validate_data(data):
+        if self.data is None:
+            raise ValueError("No data available for Donchian calculation")
+            
+        if not self.validate_data(self.data):
             raise ValueError("Data must contain OHLCV columns")
             
         # Calculate Donchian bands
-        upper = data.select(pl.col('high').rolling_max(window_size=self.lookback).alias('upper'))
-        lower = data.select(pl.col('low').rolling_min(window_size=self.lookback).alias('lower'))
+        upper = self.data.select(pl.col('high').rolling_max(window_size=self.lookback).alias('upper'))
+        lower = self.data.select(pl.col('low').rolling_min(window_size=self.lookback).alias('lower'))
         
         # Calculate middle band
-        middle = data.select(
+        middle = self.data.select(
             ((pl.col('high').rolling_max(window_size=self.lookback) + 
               pl.col('low').rolling_min(window_size=self.lookback)) / 2).alias('middle')
         )
@@ -73,20 +75,20 @@ class DonchianFeature(BaseFeature):
         else:
             return upper['upper']  # Default to upper band if middle not included
     
-    def get_bands(self, data: pl.DataFrame) -> Dict[str, pl.Series]:
+    def get_bands(self) -> Dict[str, pl.Series]:
         """
-        Get all Donchian bands.
+        Get all Donchian bands using stored data.
         
-        Args:
-            data: DataFrame with OHLCV data
-            
         Returns:
             Dictionary with 'upper', 'lower', and 'middle' bands
         """
-        if not self.validate_data(data):
+        if self.data is None:
+            raise ValueError("No data available for Donchian bands calculation")
+            
+        if not self.validate_data(self.data):
             raise ValueError("Data must contain OHLCV columns")
             
-        bands = data.select([
+        bands = self.data.select([
             pl.col('high').rolling_max(window_size=self.lookback).alias('upper'),
             pl.col('low').rolling_min(window_size=self.lookback).alias('lower')
         ])

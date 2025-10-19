@@ -9,6 +9,7 @@ import os
 import sys
 from datetime import datetime
 import argparse
+import textwrap
 
 # Add the parent directory to the path to import version_manager
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -74,239 +75,243 @@ def create_research_project(project_name: str, description: str = "") -> str:
             f.write("# the entire directory.\n")
     
     # Create project README
-    readme_content = f"""# {project_name.title()}
+    readme_content = textwrap.dedent(f"""
+        # {project_name.title()}
 
-**Created:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-**Description:** {description}
+        **Created:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        **Description:** {description}
 
-## Project Structure
+        ## Project Structure
 
-- `data/` - Raw data and processed datasets
-- `results/` - Test results, performance metrics, and statistics
-- `plots/` - Interactive graphs and visualizations
-- `notes/` - Research notes, observations, and findings
-- `strategies/` - Strategy implementations specific to this research
-- `tests/` - Test scripts and configurations
-- `archive/` - Archived results and old versions
+        - `data/` - Raw data and processed datasets
+        - `results/` - Test results, performance metrics, and statistics
+        - `plots/` - Interactive graphs and visualizations
+        - `notes/` - Research notes, observations, and findings
+        - `strategies/` - Strategy implementations specific to this research
+        - `tests/` - Test scripts and configurations
+        - `archive/` - Archived results and old versions
 
-## Research Tests
+        ## Research Tests
 
-### 1. In-Sample Excellence Test
-- **Purpose:** Proof of concept validation
-- **Description:** Test strategy performance on historical data
-- **Status:** [ ] Not Started / [ ] In Progress / [ ] Completed
+        ### 1. In-Sample Excellence Test
+        - **Purpose:** Proof of concept validation
+        - **Description:** Test strategy performance on historical data
+        - **Status:** [ ] Not Started / [ ] In Progress / [ ] Completed
 
-### 2. In-Sample Permutation Test
-- **Purpose:** Statistical significance validation
-- **Description:** Monte Carlo permutation test to validate results
-- **Status:** [ ] Not Started / [ ] In Progress / [ ] Completed
+        ### 2. In-Sample Permutation Test
+        - **Purpose:** Statistical significance validation
+        - **Description:** Monte Carlo permutation test to validate results
+        - **Status:** [ ] Not Started / [ ] In Progress / [ ] Completed
 
-### 3. Walk Forward Test
-- **Purpose:** Out-of-sample validation
-- **Description:** Rolling window validation
-- **Status:** [ ] Not Started / [ ] In Progress / [ ] Completed
+        ### 3. Walk Forward Test
+        - **Purpose:** Out-of-sample validation
+        - **Description:** Rolling window validation
+        - **Status:** [ ] Not Started / [ ] In Progress / [ ] Completed
 
-### 4. Walk Forward Permutation Test
-- **Purpose:** Out-of-sample statistical validation
-- **Description:** Monte Carlo permutation test on walk-forward results
-- **Status:** [ ] Not Started / [ ] In Progress / [ ] Completed
+        ### 4. Walk Forward Permutation Test
+        - **Purpose:** Out-of-sample statistical validation
+        - **Description:** Monte Carlo permutation test on walk-forward results
+        - **Status:** [ ] Not Started / [ ] In Progress / [ ] Completed
 
-## Key Findings
+        ## Key Findings
 
-*To be updated as research progresses...*
+        *To be updated as research progresses...*
 
-## Next Steps
+        ## Next Steps
 
-*To be updated as research progresses...*
-"""
+        *To be updated as research progresses...*
+    """).strip()
     
     with open(os.path.join(project_dir, "README.md"), "w") as f:
         f.write(readme_content)
     
     # Create main research script template
-    main_script_content = f'''"""
-{project_name.title()} Research Script
-====================================
+    main_script_content = textwrap.dedent(f"""
+        \"\"\"
+        {project_name.title()} Research Script
+        ====================================
 
-Main research script for {project_name}.
-"""
+        Main research script for {project_name}.
+        \"\"\"
 
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+        import sys
+        import os
+        sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-import polars as pl
-import numpy as np
-import matplotlib.pyplot as plt
-from datetime import datetime
+        import polars as pl
+        import numpy as np
+        import matplotlib.pyplot as plt
+        from datetime import datetime
 
-# Framework imports
-from framework import (
-    DataHandler, SignalBasedStrategy,
-    RSIFeature, DonchianFeature, PositionState, SignalChange
-)
-from framework.performance import (
-    ProfitFactorMeasure, SharpeRatioMeasure, SortinoRatioMeasure,
-    MaxDrawdownMeasure, TotalReturnMeasure, WinRateMeasure
-)
-from framework.significance_testing import MonteCarloSignificanceTest
+        # Framework imports
+        from framework import (
+            DataHandler, SignalBasedStrategy,
+            RSIFeature, DonchianFeature, PositionState, SignalChange
+        )
+        from framework.performance import (
+            ProfitFactorMeasure, SharpeRatioMeasure, SortinoRatioMeasure,
+            MaxDrawdownMeasure, TotalReturnMeasure, WinRateMeasure
+        )
+        from framework.significance_testing import MonteCarloSignificanceTest
 
-# Import the standardized test
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from tests.insample_excellence_test import InSampleExcellenceTest
+        # Import the standardized test
+        sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+        from tests.insample_excellence_test import InSampleExcellenceTest
 
-# Import project-specific strategy
-from strategies.{clean_name}_strategy import {clean_name.title().replace("_", "")}Strategy
-
-
-def run_insample_excellence_test():
-    """Run in-sample excellence test (proof of concept)"""
-    print("=== {project_name.upper()} RESEARCH - IN-SAMPLE EXCELLENCE TEST ===")
-    print(f"Started: {{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}}")
-    
-    # Load data
-    data_handler = DataHandler('framework/data/BTCUSD1hour.pq')
-    data_handler.load_data()
-    data_handler.filter_date_range(2023, 2024)
-    data = data_handler.get_data()
-    
-    print(f"Data loaded: {{data.height}} rows from {{data['timestamp'][0]}} to {{data['timestamp'][-1]}}")
-    
-    # Create strategy
-    strategy = {clean_name.title().replace("_", "")}Strategy()
-    
-    # Initialize the standardized test
-    test = InSampleExcellenceTest(os.path.dirname(__file__))
-    
-    # Run the test
-    test_metadata = test.run_test(strategy, data_handler, "insample_excellence")
-    
-    # Create plots
-    signal_result = strategy.generate_signals()
-    test.create_performance_plots(data, signal_result, test_metadata['performance_results'])
-    
-    # Generate report
-    test.generate_test_report(test_metadata)
-    
-    print(f"\\n=== {project_name.upper()} RESEARCH COMPLETED ===")
-    print("Check the following directories for results:")
-    print("- results/ - Performance metrics and metadata")
-    print("- plots/ - Visualization charts")
-    print("- README.md - Project documentation")
-    
-    return test_metadata
+        # Import project-specific strategy
+        from strategies.{clean_name}_strategy import {clean_name.title().replace("_", "")}Strategy
 
 
-def main():
-    """Main research function"""
-    print("Starting {project_name} research...")
-    
-    # Run in-sample excellence test
-    results = run_insample_excellence_test()
-    
-    print(f"\\n{project_name} research completed!")
-    print("Check the results/ and plots/ directories for outputs.")
+        def run_insample_excellence_test():
+            \"\"\"Run in-sample excellence test (proof of concept)\"\"\"
+            print("=== {project_name.upper()} RESEARCH - IN-SAMPLE EXCELLENCE TEST ===")
+            print(f"Started: {{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}}")
+            
+            # Load data
+            data_handler = DataHandler('framework/data/BTCUSD1hour.pq')
+            data_handler.load_data()
+            data_handler.filter_date_range(2023, 2024)
+            data = data_handler.get_data()
+            
+            print(f"Data loaded: {{data.height}} rows from {{data['timestamp'][0]}} to {{data['timestamp'][-1]}}")
+            
+            # Create strategy
+            strategy = {clean_name.title().replace("_", "")}Strategy()
+            
+            # Initialize the standardized test with strategy
+            test = InSampleExcellenceTest(os.path.dirname(__file__), strategy)
+            
+            # Run the test
+            test_metadata = test.run_test(data_handler, "insample_excellence")
+            
+            # Create plots
+            signal_result = strategy.generate_signals()
+            test.create_performance_plots(data, signal_result, test_metadata['performance_results'])
+            
+            # Generate report
+            test.generate_test_report(test_metadata)
+            
+            print(f"\\n=== {project_name.upper()} RESEARCH COMPLETED ===")
+            print("Check the following directories for results:")
+            print("- results/ - Performance metrics and metadata")
+            print("- plots/ - Visualization charts")
+            print("- README.md - Project documentation")
+            
+            return test_metadata
 
 
-if __name__ == "__main__":
-    main()
-'''
+        def main():
+            \"\"\"Main research function\"\"\"
+            print("Starting {project_name} research...")
+            
+            # Run in-sample excellence test
+            results = run_insample_excellence_test()
+            
+            print(f"\\n{project_name} research completed!")
+            print("Check the results/ and plots/ directories for outputs.")
+
+
+        if __name__ == "__main__":
+            main()
+    """).strip()
     
     with open(os.path.join(project_dir, "main.py"), "w") as f:
         f.write(main_script_content)
     
     # Create strategy file template
-    strategy_content = f'''"""
-{clean_name.title().replace("_", "")}Strategy - {project_name.title()} Strategy
-=======================================================
+    strategy_content = textwrap.dedent(f"""
+        \"\"\"
+        {clean_name.title().replace("_", "")}Strategy - {project_name.title()} Strategy
+        =======================================================
 
-Strategy implementation for {project_name} research project.
-"""
+        Strategy implementation for {project_name} research project.
+        \"\"\"
 
-import polars as pl
-import numpy as np
-from framework import SignalBasedStrategy, SignalChange
+        import polars as pl
+        import numpy as np
+        from framework import SignalBasedStrategy, SignalChange
 
 
-class {clean_name.title().replace("_", "")}Strategy(SignalBasedStrategy):
-    """Strategy implementation for {project_name} research"""
-    
-    def __init__(self, **kwargs):
-        super().__init__("{project_name.title()}")
-        # Initialize your strategy parameters here
-        pass
-    
-    def generate_raw_signals(self, data: pl.DataFrame, **kwargs) -> pl.Series:
-        """Generate raw trading signals"""
-        # Implement your strategy logic here
-        signals = pl.Series([SignalChange.NO_CHANGE] * len(data))
-        return signals
-'''
+        class {clean_name.title().replace("_", "")}Strategy(SignalBasedStrategy):
+            \"\"\"Strategy implementation for {project_name} research\"\"\"
+            
+            def __init__(self, **kwargs):
+                super().__init__("{project_name.title()}")
+                # Initialize your strategy parameters here
+                pass
+            
+            def generate_raw_signals(self, data: pl.DataFrame, **kwargs) -> pl.Series:
+                \"\"\"Generate raw trading signals\"\"\"
+                # Implement your strategy logic here
+                signals = pl.Series([SignalChange.NO_CHANGE] * len(data))
+                return signals
+    """).strip()
     
     with open(os.path.join(project_dir, "strategies", f"{clean_name}_strategy.py"), "w") as f:
         f.write(strategy_content)
     
     # Create test configuration file
-    test_config_content = f'''"""
-Test Configuration for {project_name}
-===================================
+    test_config_content = textwrap.dedent(f"""
+        \"\"\"
+        Test Configuration for {project_name}
+        ===================================
 
-Configuration settings for all research tests.
-"""
+        Configuration settings for all research tests.
+        \"\"\"
 
-# Data Configuration
-DATA_CONFIG = {{
-    'data_file': 'framework/data/BTCUSD1hour.pq',
-    'start_year': 2023,
-    'end_year': 2024,
-    'insample_start': '2023-01-01',
-    'insample_end': '2023-06-30',
-    'outsample_start': '2023-07-01',
-    'outsample_end': '2023-12-31'
-}}
+        # Data Configuration
+        DATA_CONFIG = {{
+            'data_file': 'framework/data/BTCUSD1hour.pq',
+            'start_year': 2023,
+            'end_year': 2024,
+            'insample_start': '2023-01-01',
+            'insample_end': '2023-06-30',
+            'outsample_start': '2023-07-01',
+            'outsample_end': '2023-12-31'
+        }}
 
-# Strategy Configuration
-STRATEGY_CONFIG = {{
-    'long_only': False,
-    'initial_capital': 10000,
-    'commission': 0.001,  # 0.1% commission
-    'slippage': 0.0005    # 0.05% slippage
-}}
+        # Strategy Configuration
+        STRATEGY_CONFIG = {{
+            'long_only': False,
+            'initial_capital': 10000,
+            'commission': 0.001,  # 0.1% commission
+            'slippage': 0.0005    # 0.05% slippage
+        }}
 
-# Test Configuration
-TEST_CONFIG = {{
-    'insample_excellence': {{
-        'enabled': True,
-        'description': 'Proof of concept validation'
-    }},
-    'insample_permutation': {{
-        'enabled': False,
-        'n_permutations': 1000,
-        'description': 'Statistical significance validation'
-    }},
-    'walk_forward': {{
-        'enabled': False,
-        'window_size': 252,  # 1 year
-        'step_size': 21,     # 1 month
-        'description': 'Out-of-sample validation'
-    }},
-    'walk_forward_permutation': {{
-        'enabled': False,
-        'n_permutations': 1000,
-        'description': 'Out-of-sample statistical validation'
-    }}
-}}
+        # Test Configuration
+        TEST_CONFIG = {{
+            'insample_excellence': {{
+                'enabled': True,
+                'description': 'Proof of concept validation'
+            }},
+            'insample_permutation': {{
+                'enabled': False,
+                'n_permutations': 1000,
+                'description': 'Statistical significance validation'
+            }},
+            'walk_forward': {{
+                'enabled': False,
+                'window_size': 252,  # 1 year
+                'step_size': 21,     # 1 month
+                'description': 'Out-of-sample validation'
+            }},
+            'walk_forward_permutation': {{
+                'enabled': False,
+                'n_permutations': 1000,
+                'description': 'Out-of-sample statistical validation'
+            }}
+        }}
 
-# Performance Measures
-PERFORMANCE_MEASURES = [
-    'profit_factor',
-    'sharpe_ratio', 
-    'sortino_ratio',
-    'max_drawdown',
-    'total_return',
-    'win_rate'
-]
-'''
+        # Performance Measures
+        PERFORMANCE_MEASURES = [
+            'profit_factor',
+            'sharpe_ratio', 
+            'sortino_ratio',
+            'max_drawdown',
+            'total_return',
+            'win_rate'
+        ]
+    """).strip()
     
     with open(os.path.join(project_dir, "tests", "config.py"), "w") as f:
         f.write(test_config_content)
@@ -327,16 +332,16 @@ def main():
     """Command line interface for creating research projects"""
     parser = argparse.ArgumentParser(
         description='Create a new research project with automatic mach numbering',
-        epilog='''
-Examples:
-  python research/create_project.py "rsi_mean_reversion"
-  python research/create_project.py "donchian_breakout" -d "Testing Donchian breakout strategy"
-  python research/create_project.py "bollinger_bands" -d "Bollinger Bands mean reversion test"
+        epilog=textwrap.dedent('''
+            Examples:
+              python research/create_project.py "rsi_mean_reversion"
+              python research/create_project.py "donchian_breakout" -d "Testing Donchian breakout strategy"
+              python research/create_project.py "bollinger_bands" -d "Bollinger Bands mean reversion test"
 
-The project name will be automatically prefixed with the next available mach number:
-  "rsi_test" -> "mach6_rsi_test"
-  "moving_average" -> "mach7_moving_average"
-        ''',
+            The project name will be automatically prefixed with the next available mach number:
+              "rsi_test" -> "mach6_rsi_test"
+              "moving_average" -> "mach7_moving_average"
+        ''').strip(),
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('title', help='Project title (required) - will be appended to auto-generated mach number')

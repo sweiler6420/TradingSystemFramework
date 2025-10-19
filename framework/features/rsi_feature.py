@@ -29,42 +29,38 @@ class RSIFeature(BaseFeature):
     - Risk management
     """
     
-    def __init__(self, period: int = 14, 
-                 overbought: float = 70.0,
-                 oversold: float = 30.0):
+    def __init__(self, data: pl.DataFrame = None, period: int = 14, overbought: float = 70.0, oversold: float = 30.0):
         """
         Initialize RSI feature.
         
         Args:
+            data: DataFrame with OHLCV data
             period: Number of periods for RSI calculation
             overbought: Overbought threshold (typically 70)
             oversold: Oversold threshold (typically 30)
         """
-        super().__init__(
-            name="RSI",
-            period=period,
-            overbought=overbought,
-            oversold=oversold
-        )
+        # Set attributes before calling super().__init__ to avoid calculation issues
         self.period = period
         self.overbought = overbought
         self.oversold = oversold
         
-    def calculate(self, data: pl.DataFrame) -> pl.Series:
-        """
-        Calculate RSI values.
+        super().__init__(name="RSI", data=data, period=period, overbought=overbought, oversold=oversold)
         
-        Args:
-            data: DataFrame with OHLCV data
-            
+    def calculate(self) -> pl.Series:
+        """
+        Calculate RSI values using stored data.
+        
         Returns:
             Series with RSI values (0-100)
         """
-        if not self.validate_data(data):
+        if self.data is None:
+            raise ValueError("No data available for RSI calculation")
+            
+        if not self.validate_data(self.data):
             raise ValueError("Data must contain OHLCV columns")
             
         # Calculate price changes
-        price_changes = data.select(
+        price_changes = self.data.select(
             pl.col('close').diff().alias('price_change')
         )
         
@@ -99,13 +95,11 @@ class RSIFeature(BaseFeature):
         
         return rsi_values['rsi']
     
-    def get_overbought_signals(self, data: pl.DataFrame, 
-                              threshold: Optional[float] = None) -> pl.Series:
+    def get_overbought_signals(self, threshold: Optional[float] = None) -> pl.Series:
         """
         Get overbought signals.
         
         Args:
-            data: DataFrame with OHLCV data
             threshold: Overbought threshold (uses instance default if None)
             
         Returns:
@@ -114,16 +108,14 @@ class RSIFeature(BaseFeature):
         if threshold is None:
             threshold = self.overbought
             
-        rsi_values = self.calculate(data)
+        rsi_values = self.get_values()
         return rsi_values > threshold
     
-    def get_oversold_signals(self, data: pl.DataFrame,
-                            threshold: Optional[float] = None) -> pl.Series:
+    def get_oversold_signals(self, threshold: Optional[float] = None) -> pl.Series:
         """
         Get oversold signals.
         
         Args:
-            data: DataFrame with OHLCV data
             threshold: Oversold threshold (uses instance default if None)
             
         Returns:
@@ -132,17 +124,15 @@ class RSIFeature(BaseFeature):
         if threshold is None:
             threshold = self.oversold
             
-        rsi_values = self.calculate(data)
+        rsi_values = self.get_values()
         return rsi_values < threshold
     
-    def get_momentum_signals(self, data: pl.DataFrame,
-                           overbought_threshold: Optional[float] = None,
+    def get_momentum_signals(self, overbought_threshold: Optional[float] = None,
                            oversold_threshold: Optional[float] = None) -> Dict[str, pl.Series]:
         """
         Get both overbought and oversold signals.
         
         Args:
-            data: DataFrame with OHLCV data
             overbought_threshold: Overbought threshold (uses instance default if None)
             oversold_threshold: Oversold threshold (uses instance default if None)
             
@@ -150,26 +140,24 @@ class RSIFeature(BaseFeature):
             Dictionary with 'overbought' and 'oversold' signals
         """
         return {
-            'overbought': self.get_overbought_signals(data, overbought_threshold),
-            'oversold': self.get_oversold_signals(data, oversold_threshold)
+            'overbought': self.get_overbought_signals(overbought_threshold),
+            'oversold': self.get_oversold_signals(oversold_threshold)
         }
     
-    def get_divergence_signals(self, data: pl.DataFrame, 
-                             lookback: int = 5) -> Dict[str, pl.Series]:
+    def get_divergence_signals(self, lookback: int = 5) -> Dict[str, pl.Series]:
         """
         Get divergence signals (price vs RSI).
         
         Args:
-            data: DataFrame with OHLCV data
             lookback: Number of periods to look back for divergence
             
         Returns:
             Dictionary with 'bullish_divergence' and 'bearish_divergence' signals
         """
-        rsi_values = self.calculate(data)
+        rsi_values = self.get_values()
         
         # Calculate price and RSI trends using rolling windows
-        price_trend = data.select(
+        price_trend = self.data.select(
             pl.col('close').rolling_mean(window_size=lookback).alias('price_trend')
         )
         rsi_trend = rsi_values.rolling_mean(window_size=lookback)
@@ -185,17 +173,14 @@ class RSIFeature(BaseFeature):
             'bearish_divergence': bearish_divergence
         }
     
-    def get_rsi_level(self, data: pl.DataFrame) -> pl.Series:
+    def get_rsi_level(self) -> pl.Series:
         """
         Get RSI level classification (oversold, neutral, overbought).
         
-        Args:
-            data: DataFrame with OHLCV data
-            
         Returns:
             Series with level classification (0=oversold, 1=neutral, 2=overbought)
         """
-        rsi_values = self.calculate(data)
+        rsi_values = self.get_values()
         
         level = pl.Series([1] * len(rsi_values))  # Default to neutral
         level = pl.when(rsi_values < self.oversold).then(0).otherwise(level)
@@ -203,15 +188,70 @@ class RSIFeature(BaseFeature):
         
         return level
     
-    def get_normalized_rsi(self, data: pl.DataFrame) -> pl.Series:
+    def get_normalized_rsi(self) -> pl.Series:
         """
         Get RSI values normalized to 0-1 scale.
         
-        Args:
-            data: DataFrame with OHLCV data
-            
         Returns:
             Series with normalized RSI values (0-1)
         """
-        rsi_values = self.calculate(data)
+        rsi_values = self.get_values()
         return rsi_values / 100.0
+    
+    def get_plot(self, x_range=None, **kwargs):
+        """
+        Generate an RSI plot with overbought/oversold levels.
+        
+        Args:
+            x_range: Optional x-axis range to synchronize with other plots
+            **kwargs: Additional plotting parameters
+            
+        Returns:
+            Bokeh figure object for RSI analysis
+        """
+        if self.data is None:
+            raise ValueError("No data available for RSI plotting")
+            
+        try:
+            from bokeh.plotting import figure
+            from bokeh.models import Range1d
+            
+            # Get RSI values (already calculated)
+            rsi_values = self.get_values()
+            
+            # Create RSI plot
+            rsi_plot = figure(
+                title=f"RSI Analysis (Period: {self.period})",
+                x_axis_type='datetime',
+                height=300,
+                width=1000,
+                tools="pan,wheel_zoom,box_zoom,reset,save",
+                toolbar_location="above"
+            )
+            
+            # Synchronize x-axis if provided
+            if x_range is not None:
+                rsi_plot.x_range = x_range
+            
+            # Add RSI line
+            rsi_plot.line(self.data['timestamp'], rsi_values, 
+                         line_color='blue', line_width=2, legend_label='RSI')
+            
+            # Add overbought/oversold levels
+            rsi_plot.line(self.data['timestamp'], [self.overbought] * len(self.data), 
+                         line_color='red', line_dash='dashed', 
+                         legend_label=f'Overbought ({self.overbought})')
+            rsi_plot.line(self.data['timestamp'], [self.oversold] * len(self.data), 
+                         line_color='red', line_dash='dashed', 
+                         legend_label=f'Oversold ({self.oversold})')
+            
+            # Set RSI range and styling
+            rsi_plot.y_range = Range1d(0, 100)
+            rsi_plot.legend.location = "top_left"
+            rsi_plot.legend.click_policy = "hide"
+            
+            return rsi_plot
+            
+        except ImportError:
+            print("Warning: Bokeh not available for RSI plotting")
+            return None

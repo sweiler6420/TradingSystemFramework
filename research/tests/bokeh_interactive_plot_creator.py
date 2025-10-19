@@ -12,6 +12,14 @@ import polars as pl
 from typing import Dict, Any, Optional
 from framework.signals import PositionState, SignalChange
 
+# Bokeh imports
+from bokeh.plotting import figure, save, output_file
+from bokeh.layouts import column
+from bokeh.models import HoverTool, CrosshairTool, Range1d
+from bokeh.palettes import Category10
+from bokeh.io import curdoc, show
+from bokeh.resources import CDN
+
 
 class BokehInteractivePlotCreator:
     """Creates interactive plots using Bokeh"""
@@ -21,17 +29,10 @@ class BokehInteractivePlotCreator:
         
     def create_interactive_analysis(self, data: pl.DataFrame, signal_result, 
                                    results: Dict[str, Any], test_name: str = "analysis", 
-                                   show_plot: bool = True, version_manager=None) -> Optional[str]:
+                                   show_plot: bool = True, version_manager=None, custom_plots=None) -> Optional[str]:
         """Create interactive analysis using Bokeh"""
         
         try:
-            from bokeh.plotting import figure, save, output_file
-            from bokeh.layouts import column
-            from bokeh.models import HoverTool, CrosshairTool, Range1d
-            from bokeh.palettes import Category10
-            from bokeh.io import curdoc
-            from bokeh.resources import CDN
-            
             print(f"\n=== CREATING BOKEH INTERACTIVE PLOT ===")
             
             # Prepare data
@@ -213,8 +214,19 @@ class BokehInteractivePlotCreator:
             hover3.formatters = {"@x": "datetime"}
             p3.add_tools(hover3)
             
-            # Combine plots
-            layout = column(p1, p2, p3, p4, sizing_mode="scale_width")
+            # Combine plots - insert custom plots between position states (p2) and equity curve (p3)
+            layout_plots = [p1, p2]  # Price and position states
+            
+            # Add custom plots if provided - synchronize x-axis with main price plot
+            if custom_plots:
+                for custom_plot in custom_plots:
+                    # Synchronize x-axis with main price plot for zoom/pan coordination
+                    custom_plot.x_range = p1.x_range
+                layout_plots.extend(custom_plots)
+            
+            layout_plots.extend([p3, p4])  # Equity curve and drawdown
+            
+            layout = column(*layout_plots, sizing_mode="scale_width")
             
             # Save the plot
             save(layout)
@@ -222,7 +234,6 @@ class BokehInteractivePlotCreator:
             # Show plot during runtime if requested
             if show_plot:
                 try:
-                    from bokeh.io import show
                     show(layout)
                     print("Interactive plot displayed in browser!")
                 except Exception as e:
@@ -241,115 +252,3 @@ class BokehInteractivePlotCreator:
             print(f"Error creating Bokeh plot: {e}")
             return None
     
-    def create_simple_interactive(self, data: pl.DataFrame, signal_result, 
-                                results: Dict[str, Any], test_name: str = "analysis", 
-                                show_plot: bool = True, version_manager=None) -> Optional[str]:
-        """Create a simple interactive plot using Bokeh"""
-        
-        try:
-            from bokeh.plotting import figure, save, output_file
-            from bokeh.layouts import column
-            from bokeh.models import HoverTool
-            
-            print(f"\n=== CREATING SIMPLE BOKEH PLOT ===")
-            
-            # Prepare data
-            data_copy = data.clone()
-            # Add timestamp column if not present
-            if 'timestamp' not in data_copy.columns:
-                data_copy = data_copy.with_row_index('row_index')
-                data_copy = data_copy.with_columns(
-                    pl.col('row_index').cast(pl.Datetime).alias('timestamp')
-                )
-            
-            # Create output file with versioning
-            if version_manager:
-                versioned_name = version_manager.get_versioned_filename(test_name, "html", "V")
-                html_file = f"{self.plots_dir}/{versioned_name}"
-            else:
-                html_file = f"{self.plots_dir}/{test_name}_bokeh_simple.html"
-            
-            output_file(html_file, title=f"{test_name.replace('_', ' ').title()} - Simple Interactive")
-            
-            # Single plot with price and signals
-            p = figure(
-                title=f"{test_name.replace('_', ' ').title()} - Price and Signals",
-                x_axis_type='datetime',
-                width=1200, height=600,
-                tools="pan,wheel_zoom,box_zoom,reset,save,hover",
-                toolbar_location="above"
-            )
-            
-            # Price line
-            p.line(data_copy['timestamp'], data_copy['close'], 
-                   line_width=2, color='blue', legend_label="Price")
-            
-            # Signal markers
-            plot_data = signal_result.get_signal_changes_for_plotting(data_copy)
-            if len(plot_data) > 0:
-                # Convert to lists for filtering
-                timestamps = plot_data['timestamp'].to_list()
-                prices = plot_data['price'].to_list()
-                signal_changes = plot_data['signal_change'].to_list()
-                
-                # Separate signals by type
-                entry_timestamps = []
-                entry_prices = []
-                exit_timestamps = []
-                exit_prices = []
-                
-                for i, signal in enumerate(signal_changes):
-                    signal_str = str(signal)
-                    if 'TO_LONG' in signal_str or 'TO_SHORT' in signal_str:
-                        entry_timestamps.append(timestamps[i])
-                        entry_prices.append(prices[i])
-                    elif 'TO_NEUTRAL' in signal_str:
-                        exit_timestamps.append(timestamps[i])
-                        exit_prices.append(prices[i])
-                
-                # Plot entry signals (up arrows)
-                if entry_timestamps:
-                    p.scatter(entry_timestamps, entry_prices, 
-                             size=15, color='green', marker='triangle', 
-                             legend_label="Entry Signals", alpha=0.8)
-                
-                # Plot exit signals (down arrows)  
-                if exit_timestamps:
-                    p.scatter(exit_timestamps, exit_prices, 
-                             size=15, color='orange', marker='inverted_triangle', 
-                             legend_label="Exit Signals", alpha=0.8)
-            
-            p.legend.location = "top_left"
-            p.legend.click_policy = "hide"
-            p.yaxis.axis_label = "Price ($)"
-            p.xaxis.axis_label = "Date"
-            
-            # Add hover tool
-            hover = HoverTool(tooltips=[("Date", "@x{%F}"), ("Price", "@y{$0,0.00}")])
-            hover.formatters = {"@x": "datetime"}
-            p.add_tools(hover)
-            
-            # Save the plot
-            save(p)
-            
-            # Show plot during runtime if requested
-            if show_plot:
-                try:
-                    from bokeh.io import show
-                    show(p)
-                    print("Simple interactive plot displayed in browser!")
-                except Exception as e:
-                    print(f"Could not display plot: {e}")
-                    print("Plot saved to file instead.")
-            
-            print(f"Simple Bokeh plot saved to: {html_file}")
-            print("Open this file in a web browser for interactivity!")
-            
-            return html_file
-            
-        except ImportError:
-            print("Bokeh not available. Install with: pip install bokeh")
-            return None
-        except Exception as e:
-            print(f"Error creating simple Bokeh plot: {e}")
-            return None

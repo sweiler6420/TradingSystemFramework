@@ -14,15 +14,16 @@ from framework import SignalBasedStrategy, RSIFeature, SignalChange
 class Mach1RsiBreakoutStrategy(SignalBasedStrategy):
     """RSI Breakout Strategy - Enter on oversold breakout, exit on overbought breakout"""
     
-    def __init__(self, rsi_period=14, oversold=30, overbought=70, **kwargs):
-        super().__init__("Mach1 RSI Breakout Strategy")
-        self.rsi_feature = RSIFeature(period=rsi_period)
+    def __init__(self, data: pl.DataFrame, rsi_period=14, oversold=30, overbought=70, **kwargs):
+        super().__init__("Mach1 RSI Breakout Strategy", data)
+        # Create RSI feature with data at initialization
+        self.rsi_feature = RSIFeature(data, period=rsi_period, oversold=oversold, overbought=overbought)
         self.rsi_period = rsi_period
         self.oversold = oversold
         self.overbought = overbought
         self.position = 0  # Track current position
     
-    def generate_raw_signal(self, data: pl.DataFrame, **kwargs) -> pl.Series:
+    def generate_raw_signal(self, **kwargs) -> pl.Series:
         """Generate RSI breakout signals using SignalChange enums"""
         
         # Override parameters if provided
@@ -30,22 +31,17 @@ class Mach1RsiBreakoutStrategy(SignalBasedStrategy):
         oversold = kwargs.get('oversold', self.oversold)
         overbought = kwargs.get('overbought', self.overbought)
         
-        # Update feature parameters if changed
-        if rsi_period != self.rsi_period:
-            self.rsi_feature.set_params(period=rsi_period)
-            self.rsi_period = rsi_period
-        
-        # Get RSI values
-        rsi_values = self.rsi_feature.calculate(data)
+        # Get RSI values from our stateful feature
+        rsi_values = self.rsi_feature.get_values()
         
         # Create signals for breakout strategy using SignalChange enums
-        signals_list = [SignalChange.NO_CHANGE] * len(data)
+        signals_list = [SignalChange.NO_CHANGE] * len(self.data)
         
         # RSI Breakout Logic:
         # Enter long when RSI breaks above oversold level (coming out of oversold)
         # Exit long when RSI breaks below overbought level (coming out of overbought)
         
-        for i in range(1, len(data)):
+        for i in range(1, len(self.data)):
             current_rsi = rsi_values[i]
             previous_rsi = rsi_values[i-1]
             
@@ -66,3 +62,14 @@ class Mach1RsiBreakoutStrategy(SignalBasedStrategy):
         # Convert list to Polars Series
         signals = pl.Series(signals_list)
         return signals
+    
+    def create_custom_plots(self, data: pl.DataFrame, signal_result, **kwargs) -> list:
+        """Create custom plots using feature's built-in plot methods"""
+        plots = []
+        
+        # Use our stateful RSI feature's plot method
+        rsi_plot = self.rsi_feature.get_plot()
+        if rsi_plot is not None:
+            plots.append(rsi_plot)
+        
+        return plots

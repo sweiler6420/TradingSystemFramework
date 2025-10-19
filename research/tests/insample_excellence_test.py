@@ -10,6 +10,7 @@ import numpy as np
 from datetime import datetime
 from typing import Dict, Any, Tuple
 import os
+import textwrap
 
 # Framework imports
 from framework import (
@@ -27,14 +28,18 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from research.version_manager import VersionManager
 
+# Bokeh plotting imports
+from .bokeh_interactive_plot_creator import BokehInteractivePlotCreator
+
 
 class InSampleExcellenceTest:
     """Standardized in-sample excellence test for proof of concept validation"""
     
-    def __init__(self, project_dir: str):
+    def __init__(self, project_dir: str, strategy: SignalBasedStrategy):
         self.project_dir = project_dir
         self.results_dir = os.path.join(project_dir, 'results')
         self.plots_dir = os.path.join(project_dir, 'plots')
+        self.strategy = strategy
         
         # Initialize performance measures
         self.measures = {
@@ -50,13 +55,12 @@ class InSampleExcellenceTest:
         self.version_manager = VersionManager(self.results_dir)
         self.plots_version_manager = VersionManager(self.plots_dir)
     
-    def run_test(self, strategy: SignalBasedStrategy, data_handler: DataHandler, 
+    def run_test(self, data_handler: DataHandler, 
                  test_name: str = "insample_excellence") -> Dict[str, Any]:
         """
         Run the in-sample excellence test
         
         Args:
-            strategy: Strategy to test
             data_handler: Data handler with loaded data
             test_name: Name for saving results
             
@@ -64,7 +68,7 @@ class InSampleExcellenceTest:
             Dictionary with test results and metadata
         """
         print(f"=== {test_name.upper().replace('_', ' ')} TEST ===")
-        print(f"Strategy: {strategy.name}")
+        print(f"Strategy: {self.strategy.name}")
         print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         
         # Get data
@@ -73,19 +77,19 @@ class InSampleExcellenceTest:
         print(f"Price range: ${data['close'].min():.2f} - ${data['close'].max():.2f}")
         
         # Set strategy data
-        strategy.set_data_handler(data_handler)
+        self.strategy.set_data_handler(data_handler)
         
         # Generate signals
-        signal_result = strategy.generate_signals()
+        signal_result = self.strategy.generate_signals()
         
         # Get strategy summary
-        summary = strategy.get_strategy_summary(signal_result)
+        summary = self.strategy.get_strategy_summary(signal_result)
         print(f"Position Counts: {summary['position_counts']}")
         print(f"Signal Changes: {summary['signal_change_counts']}")
         print(f"Total Signals: {summary['total_signals']}")
         
         # Calculate performance
-        returns = strategy._calculate_strategy_returns(data, signal_result)
+        returns = self.strategy._calculate_strategy_returns(data, signal_result)
         
         # Calculate all metrics
         results = {}
@@ -100,7 +104,7 @@ class InSampleExcellenceTest:
         # Create test metadata
         test_metadata = {
             'test_name': test_name,
-            'strategy_name': strategy.name,
+            'strategy_name': self.strategy.name,
             'test_date': datetime.now().isoformat(),
             'data_period': f"{data['timestamp'][0]} to {data['timestamp'][-1]}",
             'data_points': len(data),
@@ -122,21 +126,32 @@ class InSampleExcellenceTest:
         """Create comprehensive performance visualization plots using Bokeh"""
         print(f"\n=== CREATING PERFORMANCE PLOTS ===")
         
+        # Get custom plots from strategy
+        custom_plots = []
+        if hasattr(self.strategy, 'create_custom_plots'):
+            try:
+                custom_plots = self.strategy.create_custom_plots(data, signal_result, results=results)
+                if custom_plots:
+                    print(f"Found {len(custom_plots)} custom plot(s) from strategy")
+            except Exception as e:
+                print(f"Warning: Could not create custom plots: {e}")
+        
         # Create interactive plots with Bokeh
         try:
-            from .bokeh_interactive_plot_creator import BokehInteractivePlotCreator
             bokeh_creator = BokehInteractivePlotCreator(self.plots_dir)
             
-            # Try full interactive analysis first
-            html_file = bokeh_creator.create_interactive_analysis(data, signal_result, results, test_name, show_plot, self.plots_version_manager)
+            # Create full interactive analysis
+            html_file = bokeh_creator.create_interactive_analysis(
+                data, signal_result, results, test_name, show_plot, 
+                self.plots_version_manager, custom_plots=custom_plots
+            )
             
             if html_file is None:
-                # Fall back to simple interactive plot
-                bokeh_creator.create_simple_interactive(data, signal_result, results, test_name, show_plot, self.plots_version_manager)
+                print("\033[91mFAILED: Interactive plot creation returned None. Check for data or plotting errors.\033[0m")
                 
-        except ImportError:
-            print("Bokeh not available. Install with: pip install bokeh")
-            print("No interactive plots will be created.")
+        except Exception as e:
+            print(f"\033[91mFAILED: Error creating interactive plot: {e}\033[0m")
+            print("Check your data and plotting configuration.")
     
     def _save_results(self, test_metadata: Dict[str, Any], test_name: str):
         """Save test results to files with versioning"""
@@ -167,41 +182,42 @@ class InSampleExcellenceTest:
     
     def generate_test_report(self, test_metadata: Dict[str, Any], test_name: str = "insample_excellence"):
         """Generate a comprehensive test report"""
-        report_content = f"""# {test_name.replace('_', ' ').title()} Test Report
+        report_content = textwrap.dedent(f"""
+            # {test_name.replace('_', ' ').title()} Test Report
 
-**Test Date:** {test_metadata['test_date']}
-**Strategy:** {test_metadata['strategy_name']}
-**Data Period:** {test_metadata['data_period']}
-**Data Points:** {test_metadata['data_points']}
+            **Test Date:** {test_metadata['test_date']}
+            **Strategy:** {test_metadata['strategy_name']}
+            **Data Period:** {test_metadata['data_period']}
+            **Data Points:** {test_metadata['data_points']}
 
-## Performance Results
+            ## Performance Results
 
-| Metric | Value |
-|--------|-------|
-| Total Return | {test_metadata['performance_results']['total_return']:.2%} |
-| Profit Factor | {test_metadata['performance_results']['profit_factor']:.2f} |
-| Sharpe Ratio | {test_metadata['performance_results']['sharpe_ratio']:.2f} |
-| Sortino Ratio | {test_metadata['performance_results']['sortino_ratio']:.2f} |
-| Max Drawdown | {test_metadata['performance_results']['max_drawdown']:.2%} |
-| Win Rate | {test_metadata['performance_results']['win_rate']:.2%} |
+            | Metric | Value |
+            |--------|-------|
+            | Total Return | {test_metadata['performance_results']['total_return']:.2%} |
+            | Profit Factor | {test_metadata['performance_results']['profit_factor']:.2f} |
+            | Sharpe Ratio | {test_metadata['performance_results']['sharpe_ratio']:.2f} |
+            | Sortino Ratio | {test_metadata['performance_results']['sortino_ratio']:.2f} |
+            | Max Drawdown | {test_metadata['performance_results']['max_drawdown']:.2%} |
+            | Win Rate | {test_metadata['performance_results']['win_rate']:.2%} |
 
-## Strategy Summary
+            ## Strategy Summary
 
-- **Total Signals:** {test_metadata['strategy_summary']['total_signals']}
-- **Position Counts:** {test_metadata['strategy_summary']['position_counts']}
+            - **Total Signals:** {test_metadata['strategy_summary']['total_signals']}
+            - **Position Counts:** {test_metadata['strategy_summary']['position_counts']}
 
-## Signal Changes
+            ## Signal Changes
 
-{test_metadata['strategy_summary']['signal_change_counts']}
+            {test_metadata['strategy_summary']['signal_change_counts']}
 
-## Analysis
+            ## Analysis
 
-*Add your analysis and observations here...*
+            *Add your analysis and observations here...*
 
-## Next Steps
+            ## Next Steps
 
-*Add next steps and recommendations here...*
-"""
+            *Add next steps and recommendations here...*
+        """).strip()
         
         # Use versioned filename for the report
         versioned_base = self.version_manager.get_versioned_filename(test_name, prefix="V")

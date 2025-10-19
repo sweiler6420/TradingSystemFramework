@@ -17,10 +17,17 @@ class BaseStrategy(ABC):
     Abstract base class for all trading strategies.
     """
     
-    def __init__(self, name: str):
+    def __init__(self, name: str, data: pl.DataFrame):
+        """
+        Initialize base strategy with data.
+        
+        Args:
+            name: Strategy name
+            data: Market data DataFrame (required for all strategies)
+        """
         self.name = name
+        self.data = data
         self.data_handler = None
-        self.data = None
         self.signals = None
         self.returns = None
         self.performance = {}
@@ -85,6 +92,21 @@ class BaseStrategy(ABC):
         return significance_test.get_results(self.data, self.returns, **kwargs)
     
 
+    def create_custom_plots(self, data: pl.DataFrame, signal_result, **kwargs) -> list:
+        """
+        Override this method in your strategy to create custom plots.
+        Return a list of plot objects that will be embedded in the performance plots.
+        
+        Args:
+            data: The market data DataFrame
+            signal_result: The signal result object
+            **kwargs: Additional parameters
+            
+        Returns:
+            List of plot objects (Bokeh figures, matplotlib plots, etc.)
+        """
+        return []  # Default: no custom plots
+    
     def run_strategy(self, **kwargs) -> Dict[str, Any]:
         """Run the complete strategy pipeline"""
         # Generate signals

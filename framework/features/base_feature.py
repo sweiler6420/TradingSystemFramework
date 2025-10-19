@@ -21,45 +21,50 @@ class BaseFeature(ABC):
     any other engineered features for machine learning models.
     """
     
-    def __init__(self, name: str, **params):
+    def __init__(self, name: str, data: pl.DataFrame = None, **params):
         """
-        Initialize the feature.
+        Initialize the feature with data.
         
         Args:
             name: Name of the feature
+            data: DataFrame with OHLCV data
             **params: Feature-specific parameters
         """
         self.name = name
         self.params = params
+        self.data = data
         self.values = None
         self.is_calculated = False
         
-    @abstractmethod
-    def calculate(self, data: pl.DataFrame) -> pl.Series:
-        """
-        Calculate the feature values.
+        # Calculate values immediately if data is provided
+        if self.data is not None:
+            self.values = self.calculate()
+            self.is_calculated = True
         
-        Args:
-            data: DataFrame with OHLCV data
-            
+    @abstractmethod
+    def calculate(self) -> pl.Series:
+        """
+        Calculate the feature values using stored data.
+        
         Returns:
             Series with calculated feature values
         """
         pass
     
-    def get_values(self, data: pl.DataFrame, recalculate: bool = False) -> pl.Series:
+    def get_values(self, recalculate: bool = False) -> pl.Series:
         """
         Get feature values, calculating if necessary.
         
         Args:
-            data: DataFrame with OHLCV data
             recalculate: Force recalculation even if already calculated
             
         Returns:
             Series with feature values
         """
         if not self.is_calculated or recalculate:
-            self.values = self.calculate(data)
+            if self.data is None:
+                raise ValueError("No data available for calculation")
+            self.values = self.calculate()
             self.is_calculated = True
             
         return self.values
@@ -73,6 +78,12 @@ class BaseFeature(ABC):
         self.params.update(params)
         self.is_calculated = False  # Mark for recalculation
     
+    def set_data(self, data: pl.DataFrame):
+        """Set data and recalculate feature values"""
+        self.data = data
+        self.values = self.calculate()
+        self.is_calculated = True
+    
     def validate_data(self, data: pl.DataFrame) -> bool:
         """
         Validate that the data contains required columns.
@@ -85,6 +96,22 @@ class BaseFeature(ABC):
         """
         required_columns = ['open', 'high', 'low', 'close', 'volume']
         return all(col in data.columns for col in required_columns)
+    
+    def get_plot(self, x_range=None, **kwargs):
+        """
+        Generate a plot for this feature. Override this method in subclasses to provide
+        feature-specific plotting functionality.
+        
+        Args:
+            x_range: Optional x-axis range to synchronize with other plots
+            **kwargs: Additional plotting parameters
+            
+        Returns:
+            Bokeh figure object or None if no plot is available
+        """
+        if self.data is None:
+            raise ValueError("No data available for plotting")
+        return None  # Default: no plot available
     
     def get_feature_info(self) -> Dict[str, Any]:
         """

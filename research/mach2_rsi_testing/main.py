@@ -47,11 +47,11 @@ def run_insample_excellence_test():
     # Create strategy
     strategy = Mach2RsiTestingStrategy()
     
-    # Initialize the standardized test
-    test = InSampleExcellenceTest(os.path.dirname(__file__))
+    # Initialize the standardized test with strategy
+    test = InSampleExcellenceTest(os.path.dirname(__file__), strategy)
     
     # Run the test
-    test_metadata = test.run_test(strategy, data_handler, "insample_excellence")
+    test_metadata = test.run_test(data_handler, "insample_excellence")
     
     # Create plots
     signal_result = strategy.generate_signals()

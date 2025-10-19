@@ -18,8 +18,8 @@ from framework.signals import (
 class SignalBasedStrategy(BaseStrategy):
     """Base strategy class that uses the standardized signal system"""
     
-    def __init__(self, name: str):
-        super().__init__(name)
+    def __init__(self, name: str, data: pl.DataFrame):
+        super().__init__(name, data)
         self.signal_manager = SignalManager()
         
     def generate_signals(self, data: Optional[pl.DataFrame] = None, **kwargs) -> SignalResult:
@@ -40,7 +40,7 @@ class SignalBasedStrategy(BaseStrategy):
             data = self.data
 
         # Generate raw signals
-        raw_signals = self.generate_raw_signal(data, **kwargs)
+        raw_signals = self.generate_raw_signal(**kwargs)
         
         # Auto-detect signal type - check the actual values, not the types
         if isinstance(raw_signals[0], SignalChange):
@@ -65,19 +65,18 @@ class SignalBasedStrategy(BaseStrategy):
         
         return signal_result
     
-    def generate_raw_signal(self, data: pl.DataFrame, **kwargs) -> pl.Series:
+    def generate_raw_signal(self, **kwargs) -> pl.Series:
         """Generate raw trading signals using SignalChange enums
         
         This method should be implemented by subclasses.
         
         Args:
-            data: Price data
             **kwargs: Strategy-specific parameters
             
         Returns:
             pl.Series: SignalChange enums (NEUTRAL_TO_LONG, LONG_TO_NEUTRAL, etc.)
         """
-        raise NotImplementedError("Subclasses must implement generate_raw_signal_change")
+        raise NotImplementedError("Subclasses must implement generate_raw_signal")
 
     
     def generate_exit_conditions(self, data: pl.DataFrame, **kwargs) -> Optional[pl.Series]:
