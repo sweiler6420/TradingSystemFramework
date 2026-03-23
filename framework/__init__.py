@@ -15,7 +15,7 @@ from framework.data_handling import DataHandler
 from framework.performance import BaseMeasure
 from framework.significance_testing import BaseSignificanceTest
 from framework.backtest import StrategyBacktest
-from framework.features import BaseFeature, RSIFeature, DonchianFeature
+from framework.features import BaseFeature, RSIFeature, DonchianFeature, EmaFeature, MacdFeature
 from framework.signals import PositionState, SignalChange, SignalResult, SignalManager
 
 __version__ = "1.0.0"
@@ -31,6 +31,8 @@ __all__ = [
     'BaseFeature',
     'RSIFeature',
     'DonchianFeature',
+    'EmaFeature',
+    'MacdFeature',
     'PositionState',
     'SignalChange',
     'SignalResult',
