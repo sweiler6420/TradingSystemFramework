@@ -5,7 +5,7 @@ Sharpe Ratio Measure
 Calculate Sharpe ratio (excess return / volatility).
 """
 
-import pandas as pd
+import polars as pl
 import numpy as np
 from framework.performance.measures import BaseMeasure
 
@@ -17,7 +17,7 @@ class SharpeRatioMeasure(BaseMeasure):
         super().__init__("Sharpe Ratio")
         self.risk_free_rate = risk_free_rate
     
-    def calculate(self, returns: pd.Series, **kwargs) -> float:
+    def calculate(self, returns: pl.Series, **kwargs) -> float:
         risk_free_rate = kwargs.get('risk_free_rate', self.risk_free_rate)
         excess_returns = returns.mean() - risk_free_rate
         return excess_returns / returns.std() if returns.std() > 0 else 0

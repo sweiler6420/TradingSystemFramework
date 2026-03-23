@@ -5,7 +5,7 @@ Total Trades Measure
 Calculate total number of trades.
 """
 
-import pandas as pd
+import polars as pl
 import numpy as np
 from framework.performance.measures import BaseMeasure
 
@@ -16,5 +16,5 @@ class TotalTradesMeasure(BaseMeasure):
     def __init__(self):
         super().__init__("Total Trades")
     
-    def calculate(self, returns: pd.Series, **kwargs) -> int:
-        return len(returns[returns != 0])
+    def calculate(self, returns: pl.Series, **kwargs) -> int:
+        return len(returns.filter(returns != 0))

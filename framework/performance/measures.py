@@ -5,7 +5,7 @@ Performance Measures Base Classes
 Base classes for performance measurement tools.
 """
 
-import pandas as pd
+import polars as pl
 import numpy as np
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Union, List
@@ -20,7 +20,7 @@ class BaseMeasure(ABC):
         self.name = name
     
     @abstractmethod
-    def calculate(self, data: pd.DataFrame, **kwargs) -> Any:
+    def calculate(self, data: pl.DataFrame, **kwargs) -> Any:
         """Calculate the performance measure"""
         pass
     

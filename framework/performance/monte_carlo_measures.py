@@ -5,7 +5,7 @@ Monte Carlo Testing Measures
 Monte Carlo permutation testing and related statistical measures.
 """
 
-import pandas as pd
+import polars as pl
 import numpy as np
 from framework.performance.measures import BaseMeasure
 from typing import Dict, Any, Union, List
@@ -21,7 +21,7 @@ class MonteCarloPermutationTest(BaseMeasure):
         self.n_permutations = n_permutations
         self.significance_level = significance_level
     
-    def calculate(self, data: pd.DataFrame, strategy_returns: pd.Series, **kwargs) -> Dict[str, Any]:
+    def calculate(self, data: pl.DataFrame, strategy_returns: pl.Series, **kwargs) -> Dict[str, Any]:
         """
         Run Monte Carlo permutation test.
         
@@ -43,7 +43,7 @@ class MonteCarloPermutationTest(BaseMeasure):
             
             # Recalculate strategy on permuted data
             # Note: This is a simplified version - you'd need to re-run your strategy
-            permuted_returns = np.random.permutation(strategy_returns)
+            permuted_returns = np.random.permutation(strategy_returns.to_numpy())
             permutation_returns.append(permuted_returns.sum())
         
         # Calculate statistics
@@ -64,8 +64,8 @@ class MonteCarloPermutationTest(BaseMeasure):
         }
     
     @staticmethod
-    def get_permutation(ohlc: Union[pd.DataFrame, List[pd.DataFrame]], 
-                       start_index: int = 0, seed: int = None) -> Union[pd.DataFrame, List[pd.DataFrame]]:
+    def get_permutation(ohlc: Union[pl.DataFrame, List[pl.DataFrame]], 
+                       start_index: int = 0, seed: int = None) -> Union[pl.DataFrame, List[pl.DataFrame]]:
         """
         Create a permutation of OHLC data while preserving some statistical properties.
         
@@ -145,8 +145,7 @@ class MonteCarloPermutationTest(BaseMeasure):
                 perm_bars[i, 3] = perm_bars[i, 0] + relative_close[mkt_i][k]
 
             perm_bars = np.exp(perm_bars)
-            perm_bars = pd.DataFrame(perm_bars, index=time_index, 
-                                    columns=['open', 'high', 'low', 'close'])
+            perm_bars = pl.DataFrame(perm_bars, schema=['open', 'high', 'low', 'close'])
 
             perm_ohlc.append(perm_bars)
 
@@ -156,7 +155,7 @@ class MonteCarloPermutationTest(BaseMeasure):
             return perm_ohlc[0]
 
     @staticmethod
-    def simple_permutation(data: pd.DataFrame, seed: int = None) -> pd.DataFrame:
+    def simple_permutation(data: pl.DataFrame, seed: int = None) -> pl.DataFrame:
         """
         Simple random permutation of returns (destroys all temporal dependencies).
         Use with caution as this creates unrealistic market conditions.
@@ -180,7 +179,7 @@ class MonteCarloPermutationTest(BaseMeasure):
         return permuted_data
 
     @staticmethod
-    def block_permutation(data: pd.DataFrame, block_size: int = 20, seed: int = None) -> pd.DataFrame:
+    def block_permutation(data: pl.DataFrame, block_size: int = 20, seed: int = None) -> pl.DataFrame:
         """
         Block permutation that preserves short-term dependencies within blocks.
         """
@@ -198,6 +197,6 @@ class MonteCarloPermutationTest(BaseMeasure):
         permuted_blocks = np.random.permutation(blocks)
         
         # Reconstruct data
-        permuted_data = pd.concat(permuted_blocks, ignore_index=False)
+        permuted_data = pl.concat(permuted_blocks)
         
         return permuted_data

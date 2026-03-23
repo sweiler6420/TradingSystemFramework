@@ -2,26 +2,14 @@
 Base Strategy Classes
 ====================
 
-Contains the abstract base classes for trading strategies and optimizers.
+Contains the abstract base classes for trading strategies.
 """
 
 from abc import ABC, abstractmethod
-import pandas as pd
+import polars as pl
 import numpy as np
 from typing import Dict, Any, Optional, List, Tuple
 import warnings
-
-
-class Optimizer(ABC):
-    """
-    Abstract base class for strategy optimization.
-    Can be parameter optimization, model training, pattern selection, etc.
-    """
-    
-    @abstractmethod
-    def optimize(self, data: pd.DataFrame, strategy, **kwargs) -> Dict[str, Any]:
-        """Optimize strategy parameters or train models"""
-        pass
 
 
 class BaseStrategy(ABC):
@@ -29,11 +17,17 @@ class BaseStrategy(ABC):
     Abstract base class for all trading strategies.
     """
     
-    def __init__(self, name: str):
+    def __init__(self, name: str, data: pl.DataFrame):
+        """
+        Initialize base strategy with data.
+        
+        Args:
+            name: Strategy name
+            data: Market data DataFrame (required for all strategies)
+        """
         self.name = name
+        self.data = data
         self.data_handler = None
-        self.optimizer = None
-        self.data = None
         self.signals = None
         self.returns = None
         self.performance = {}
@@ -45,13 +39,8 @@ class BaseStrategy(ABC):
         self.data = data_handler.get_data()
         
 
-    def set_optimizer(self, optimizer: Optimizer):
-        """Set the optimizer"""
-        self.optimizer = optimizer
-        
-
     @abstractmethod
-    def generate_signals(self, **kwargs) -> pd.Series:
+    def generate_signals(self, **kwargs) -> pl.Series:
         """Generate trading signals"""
         pass
     
@@ -103,19 +92,26 @@ class BaseStrategy(ABC):
         return significance_test.get_results(self.data, self.returns, **kwargs)
     
 
-    def optimize(self, **kwargs) -> Dict[str, Any]:
-        """Run optimization"""
-        if self.optimizer is None:
-            raise ValueError("No optimizer set. Call set_optimizer() first.")
+    def create_custom_plots(self, data: pl.DataFrame, signal_result, **kwargs) -> list:
+        """
+        Override this method in your strategy to create custom plots.
+        Return a list of plot objects that will be embedded in the performance plots.
+        
+        Args:
+            data: The market data DataFrame
+            signal_result: The signal result object
+            **kwargs: Additional parameters
             
-        return self.optimizer.optimize(self.data, self, **kwargs)
-    
+        Returns:
+            List of plot objects (Bokeh figures, matplotlib plots, etc.)
+        """
+        return []  # Default: no custom plots
     
     def run_strategy(self, **kwargs) -> Dict[str, Any]:
         """Run the complete strategy pipeline"""
         # Generate signals
         self.signals = self.generate_signals(**kwargs)
-        self.data['signal'] = self.signals
+        self.data = self.data.with_columns(self.signals.alias('signal'))
         
         # Calculate performance
         performance = self.calculate_performance()

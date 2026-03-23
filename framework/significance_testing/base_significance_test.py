@@ -8,7 +8,7 @@ and not due to random chance.
 """
 
 from abc import ABC, abstractmethod
-import pandas as pd
+import polars as pl
 import numpy as np
 from typing import Dict, Any, Optional
 
@@ -39,7 +39,7 @@ class BaseSignificanceTest(ABC):
         self.is_calculated = False
         
     @abstractmethod
-    def test(self, data: pd.DataFrame, strategy_returns: pd.Series, **kwargs) -> Dict[str, Any]:
+    def test(self, data: pl.DataFrame, strategy_returns: pl.Series, **kwargs) -> Dict[str, Any]:
         """
         Perform the significance test.
         
@@ -57,7 +57,7 @@ class BaseSignificanceTest(ABC):
         """
         pass
     
-    def get_results(self, data: pd.DataFrame, strategy_returns: pd.Series, 
+    def get_results(self, data: pl.DataFrame, strategy_returns: pl.Series, 
                    recalculate: bool = False, **kwargs) -> Dict[str, Any]:
         """
         Get test results, calculating if necessary.

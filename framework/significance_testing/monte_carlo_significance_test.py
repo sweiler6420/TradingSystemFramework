@@ -6,7 +6,7 @@ Tests whether strategy returns are significantly different from random
 by permuting the order of returns and comparing performance.
 """
 
-import pandas as pd
+import polars as pl
 import numpy as np
 from typing import Dict, Any, Optional
 from .base_significance_test import BaseSignificanceTest
@@ -45,7 +45,7 @@ class MonteCarloSignificanceTest(BaseSignificanceTest):
         if random_seed is not None:
             np.random.seed(random_seed)
     
-    def test(self, data: pd.DataFrame, strategy_returns: pd.Series, **kwargs) -> Dict[str, Any]:
+    def test(self, data: pl.DataFrame, strategy_returns: pl.Series, **kwargs) -> Dict[str, Any]:
         """
         Perform Monte Carlo significance test.
         
@@ -70,8 +70,7 @@ class MonteCarloSignificanceTest(BaseSignificanceTest):
         
         for _ in range(self.n_permutations):
             # Create random permutation of returns
-            permuted_returns = strategy_returns.sample(frac=1.0).reset_index(drop=True)
-            permuted_returns.index = strategy_returns.index  # Restore original index
+            permuted_returns = strategy_returns.sample(fraction=1.0, seed=self.random_seed)
             
             # Calculate metric for this permutation
             permuted_metric = self._calculate_metric(permuted_returns, metric)
@@ -108,7 +107,7 @@ class MonteCarloSignificanceTest(BaseSignificanceTest):
             'test_name': self.name
         }
     
-    def _calculate_metric(self, returns: pd.Series, metric: str) -> float:
+    def _calculate_metric(self, returns: pl.Series, metric: str) -> float:
         """
         Calculate the specified performance metric.
         
@@ -125,23 +124,23 @@ class MonteCarloSignificanceTest(BaseSignificanceTest):
             return returns.mean() / returns.std() * np.sqrt(252)  # Annualized
         
         elif metric == 'profit_factor':
-            winning_trades = returns[returns > 0].sum()
-            losing_trades = returns[returns < 0].abs().sum()
+            winning_trades = returns.filter(returns > 0).sum()
+            losing_trades = returns.filter(returns < 0).abs().sum()
             return winning_trades / losing_trades if losing_trades > 0 else 0
         
         elif metric == 'total_return':
             return returns.sum()
         
         elif metric == 'max_drawdown':
-            cumulative = (1 + returns).cumprod()
-            running_max = cumulative.expanding().max()
+            cumulative = (1 + returns).cum_prod()
+            running_max = cumulative.cum_max()
             drawdown = (cumulative - running_max) / running_max
             return drawdown.min()
         
         else:
             raise ValueError(f"Unknown metric: {metric}")
     
-    def get_significance_summary(self, data: pd.DataFrame, strategy_returns: pd.Series, 
+    def get_significance_summary(self, data: pl.DataFrame, strategy_returns: pl.Series, 
                                **kwargs) -> str:
         """
         Get a human-readable summary of the test results.

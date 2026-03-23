@@ -5,7 +5,7 @@ Calmar Ratio Measure
 Calculate Calmar ratio (annual return / maximum drawdown).
 """
 
-import pandas as pd
+import polars as pl
 import numpy as np
 from framework.performance.measures import BaseMeasure
 
@@ -19,7 +19,7 @@ class CalmarRatioMeasure(BaseMeasure):
         super().__init__("Calmar Ratio")
         self.periods_per_year = periods_per_year
     
-    def calculate(self, returns: pd.Series, **kwargs) -> float:
+    def calculate(self, returns: pl.Series, **kwargs) -> float:
         periods_per_year = kwargs.get('periods_per_year', self.periods_per_year)
         
         # Calculate annual return
@@ -28,8 +28,8 @@ class CalmarRatioMeasure(BaseMeasure):
         annual_return = total_return / years if years > 0 else 0
         
         # Calculate maximum drawdown
-        cumulative = (1 + returns).cumprod()
-        running_max = cumulative.expanding().max()
+        cumulative = (1 + returns).cum_prod()
+        running_max = cumulative.cum_max()
         drawdown = (cumulative - running_max) / running_max
         max_drawdown = abs(drawdown.min())
         

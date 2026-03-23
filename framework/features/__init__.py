@@ -8,6 +8,14 @@ Features are modular indicators that can be applied to any strategy.
 
 from framework.features.base_feature import BaseFeature
 from framework.features.donchian_feature import DonchianFeature
+from framework.features.ema_feature import EmaFeature
+from framework.features.macd_feature import MacdFeature
 from framework.features.rsi_feature import RSIFeature
 
-__all__ = ['BaseFeature', 'DonchianFeature', 'RSIFeature']
+__all__ = [
+    'BaseFeature',
+    'DonchianFeature',
+    'EmaFeature',
+    'MacdFeature',
+    'RSIFeature',
+]

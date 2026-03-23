@@ -5,7 +5,7 @@ Win Rate Measure
 Calculate win rate (percentage of winning trades).
 """
 
-import pandas as pd
+import polars as pl
 import numpy as np
 from framework.performance.measures import BaseMeasure
 
@@ -16,7 +16,7 @@ class WinRateMeasure(BaseMeasure):
     def __init__(self):
         super().__init__("Win Rate")
     
-    def calculate(self, returns: pd.Series, **kwargs) -> float:
-        total_trades = len(returns[returns != 0])
-        winning_trades = len(returns[returns > 0])
+    def calculate(self, returns: pl.Series, **kwargs) -> float:
+        total_trades = len(returns.filter(returns != 0))
+        winning_trades = len(returns.filter(returns > 0))
         return winning_trades / total_trades if total_trades > 0 else 0

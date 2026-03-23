@@ -6,7 +6,7 @@ Donchian Channel is a trend-following indicator that shows the highest high
 and lowest low over a specified lookback period.
 """
 
-import pandas as pd
+import polars as pl
 import numpy as np
 from typing import Dict, Any
 from framework.features.base_feature import BaseFeature
@@ -27,73 +27,84 @@ class DonchianFeature(BaseFeature):
     - Support/resistance levels
     """
     
-    def __init__(self, lookback: int = 20, include_middle: bool = True):
+    def __init__(self, data: pl.DataFrame = None, lookback: int = 20, include_middle: bool = True):
         """
         Initialize Donchian feature.
         
         Args:
+            data: DataFrame with OHLCV data
             lookback: Number of periods to look back for highs/lows
             include_middle: Whether to include middle band (average of upper/lower)
         """
-        super().__init__(
-            name="Donchian",
-            lookback=lookback,
-            include_middle=include_middle
-        )
+        # Set attributes before calling super().__init__ to avoid calculation issues
         self.lookback = lookback
         self.include_middle = include_middle
         
-    def calculate(self, data: pd.DataFrame) -> pd.Series:
+        super().__init__(
+            name="Donchian",
+            data=data,
+            lookback=lookback,
+            include_middle=include_middle
+        )
+        
+    def calculate(self) -> pl.Series:
         """
-        Calculate Donchian Channel values.
+        Calculate Donchian Channel values using stored data.
         
-        Returns the middle band by default. Use get_bands() for all bands.
-        
-        Args:
-            data: DataFrame with OHLCV data
-            
         Returns:
             Series with Donchian middle band values
         """
-        if not self.validate_data(data):
+        if self.data is None:
+            raise ValueError("No data available for Donchian calculation")
+            
+        if not self.validate_data(self.data):
             raise ValueError("Data must contain OHLCV columns")
             
         # Calculate Donchian bands
-        upper = data['high'].rolling(window=self.lookback).max()
-        lower = data['low'].rolling(window=self.lookback).min()
-        middle = (upper + lower) / 2
+        upper = self.data.select(pl.col('high').rolling_max(window_size=self.lookback).alias('upper'))
+        lower = self.data.select(pl.col('low').rolling_min(window_size=self.lookback).alias('lower'))
+        
+        # Calculate middle band
+        middle = self.data.select(
+            ((pl.col('high').rolling_max(window_size=self.lookback) + 
+              pl.col('low').rolling_min(window_size=self.lookback)) / 2).alias('middle')
+        )
         
         if self.include_middle:
-            return middle
+            return middle['middle']
         else:
-            return upper  # Default to upper band if middle not included
+            return upper['upper']  # Default to upper band if middle not included
     
-    def get_bands(self, data: pd.DataFrame) -> Dict[str, pd.Series]:
+    def get_bands(self) -> Dict[str, pl.Series]:
         """
-        Get all Donchian bands.
+        Get all Donchian bands using stored data.
         
-        Args:
-            data: DataFrame with OHLCV data
-            
         Returns:
             Dictionary with 'upper', 'lower', and 'middle' bands
         """
-        if not self.validate_data(data):
+        if self.data is None:
+            raise ValueError("No data available for Donchian bands calculation")
+            
+        if not self.validate_data(self.data):
             raise ValueError("Data must contain OHLCV columns")
             
-        upper = data['high'].rolling(window=self.lookback).max()
-        lower = data['low'].rolling(window=self.lookback).min()
-        middle = (upper + lower) / 2
+        bands = self.data.select([
+            pl.col('high').rolling_max(window_size=self.lookback).alias('upper'),
+            pl.col('low').rolling_min(window_size=self.lookback).alias('lower')
+        ])
+        
+        # Calculate middle band
+        middle = (bands['upper'] + bands['lower']) / 2
         
         return {
-            'upper': upper,
-            'lower': lower,
+            'upper': bands['upper'],
+            'lower': bands['lower'],
             'middle': middle
         }
     
-    def get_breakout_signals(self, data: pd.DataFrame, 
+    def get_breakout_signals(self, data: pl.DataFrame, 
                            upper_threshold: float = 1.0,
-                           lower_threshold: float = 1.0) -> Dict[str, pd.Series]:
+                           lower_threshold: float = 1.0) -> Dict[str, pl.Series]:
         """
         Get breakout signals based on Donchian channels.
         
@@ -107,15 +118,15 @@ class DonchianFeature(BaseFeature):
         """
         bands = self.get_bands(data)
         
-        upper_breakout = data['close'] > (bands['upper'] * upper_threshold)
-        lower_breakdown = data['close'] < (bands['lower'] * lower_threshold)
+        upper_breakout = data.select(pl.col('close') > (bands['upper'] * upper_threshold))['close']
+        lower_breakdown = data.select(pl.col('close') < (bands['lower'] * lower_threshold))['close']
         
         return {
             'upper_breakout': upper_breakout,
             'lower_breakdown': lower_breakdown
         }
     
-    def get_channel_width(self, data: pd.DataFrame) -> pd.Series:
+    def get_channel_width(self, data: pl.DataFrame) -> pl.Series:
         """
         Get the width of the Donchian channel.
         
@@ -128,7 +139,7 @@ class DonchianFeature(BaseFeature):
         bands = self.get_bands(data)
         return bands['upper'] - bands['lower']
     
-    def get_channel_position(self, data: pd.DataFrame) -> pd.Series:
+    def get_channel_position(self, data: pl.DataFrame) -> pl.Series:
         """
         Get the position of close price within the channel (0-1 scale).
         
@@ -141,7 +152,9 @@ class DonchianFeature(BaseFeature):
         bands = self.get_bands(data)
         channel_width = bands['upper'] - bands['lower']
         
-        # Avoid division by zero
-        position = (data['close'] - bands['lower']) / channel_width.replace(0, np.nan)
+        # Calculate position, handling division by zero
+        position = pl.when(channel_width == 0).then(0.5).otherwise(
+            (data.select(pl.col('close'))['close'] - bands['lower']) / channel_width
+        )
         
         return position

@@ -5,7 +5,7 @@ Returns Measure
 Calculate strategy returns from signals.
 """
 
-import pandas as pd
+import polars as pl
 import numpy as np
 from framework.performance.measures import BaseMeasure
 
@@ -17,8 +17,10 @@ class ReturnsMeasure(BaseMeasure):
         super().__init__("Returns Calculation")
         self.signal_col = signal_col
     
-    def calculate(self, data: pd.DataFrame, **kwargs) -> pd.Series:
+    def calculate(self, data: pl.DataFrame, **kwargs) -> pl.Series:
         signal_col = kwargs.get('signal_col', self.signal_col)
         if 'return' not in data.columns:
-            data['return'] = np.log(data['close']).diff().shift(-1)
-        return data[signal_col] * data['return']
+            data = data.with_columns(
+                pl.col('close').log().diff().shift(-1).alias('return')
+            )
+        return data.select(pl.col(signal_col) * pl.col('return'))[signal_col]
