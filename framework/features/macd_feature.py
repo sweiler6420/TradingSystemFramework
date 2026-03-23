@@ -119,7 +119,7 @@ class MacdFeature(BaseFeature):
                 ),
                 x_axis_type="datetime",
                 height=300,
-                width=1000,
+                sizing_mode="stretch_width",
                 tools="pan,wheel_zoom,box_zoom,reset,save",
                 toolbar_location="above",
             )
