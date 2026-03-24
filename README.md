@@ -78,6 +78,12 @@ framework/
 ├── data_handling/            # Data management
 │   ├── __init__.py
 │   └── data_handler.py      # DataHandler class
+├── data_sources/            # Market data providers (yfinance) + Parquet cache
+│   ├── __init__.py
+│   ├── protocol.py
+│   ├── yfinance_provider.py
+│   ├── cache.py
+│   └── retry.py
 ├── backtest/                # Backtesting functionality
 │   ├── __init__.py
 │   └── strategy_backtest.py # StrategyBacktest class
@@ -191,6 +197,28 @@ data_handler.add_features('rsi', rsi_values)
 - Date range filtering
 - Feature addition capabilities
 - Crypto market optimized (24/7 trading)
+
+#### Market data providers (`framework/data_sources/`)
+
+Fetch OHLCV via a pluggable **provider**, cache Parquet under each research project’s `data/` folder, then pass the path to `DataHandler`. The default implementation uses **yfinance** with chunked requests, retries, and delays between chunks.
+
+```python
+from datetime import date
+from framework.data_sources import YFinanceProvider, ensure_cached
+from framework.data_handling import DataHandler
+
+cache_dir = "/path/to/research/my_strategy/data"
+path = ensure_cached(
+    YFinanceProvider(),
+    symbol="AAPL",
+    interval="1h",
+    start=date(2023, 1, 1),
+    end=date(2024, 1, 1),
+    cache_dir=cache_dir,
+)
+data_handler = DataHandler(str(path))
+data_handler.load_data()
+```
 
 ### 4. Backtest Module (`framework/backtest/`)
 

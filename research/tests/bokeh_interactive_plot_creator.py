@@ -7,6 +7,7 @@ for web-based interactive visualizations with excellent built-in saving.
 """
 
 import html
+import math
 import os
 import re
 import webbrowser
@@ -20,7 +21,8 @@ from framework.signals import PositionState, SignalChange
 # Bokeh imports
 from bokeh.plotting import figure
 from bokeh.layouts import column
-from bokeh.models import Div, HoverTool, Range1d, Spacer
+from bokeh.models import ColumnDataSource, CustomJS, Div, HoverTool, NumeralTickFormatter, Range1d, Spacer, Span
+from bokeh.events import MouseMove
 from bokeh.io import curdoc
 from bokeh.resources import CDN
 from bokeh.embed import file_html
@@ -50,12 +52,16 @@ COLOR_EXIT = "#f0a84a"  # exit markers (muted orange)
 COLOR_LONG_AREA = "#2ea043"  # position long fill (GitHub-green-ish, used with alpha)
 COLOR_SHORT_AREA = "#da3633"
 COLOR_NEUTRAL_AREA = "#6e7681"
-# Candlesticks (desaturated)
-COLOR_CANDLE_WICK = "#6e7681"
-COLOR_CANDLE_UP_FILL = "#3d5a4a"
-COLOR_CANDLE_UP_LINE = "#5a7d6a"
-COLOR_CANDLE_DN_FILL = "#6a3d3d"
-COLOR_CANDLE_DN_LINE = "#8a5a5a"
+# Risk/reward rectangles (entry → exit): align with long/short area hues
+COLOR_RR_PROFIT_ZONE = "#2ea043"
+COLOR_RR_RISK_ZONE = "#da3633"
+# Candlesticks — solid bodies + lighter, thicker wicks (read on dark REPORT_PLOT_BG)
+COLOR_CANDLE_WICK = "#b4c2d4"
+COLOR_CANDLE_WICK_WIDTH = 1.5
+COLOR_CANDLE_UP_FILL = "#1e7f4f"
+COLOR_CANDLE_UP_LINE = "#4ddb9a"
+COLOR_CANDLE_DN_FILL = "#a83232"
+COLOR_CANDLE_DN_LINE = "#ff8a80"
 COLOR_METRIC_TEXT = "#7d8796"
 
 # Main price + signals row is taller; other panes keep fixed heights below
@@ -64,6 +70,14 @@ REPORT_PRICE_SIGNAL_HEIGHT = 400
 REPORT_SECTION_GAP = 18
 # Match performance summary card rounding (see _performance_summary_div)
 REPORT_PLOT_CORNER_RADIUS = 10
+# Y-axis default (position / equity panes): readable scalars.
+REPORT_Y_AXIS_NUMERAL_FORMAT = "0,0.00"
+# Price pane: tooltips + **price Y-axis** — enough decimals so grid labels are not all identical
+# when levels differ by pips (e.g. avoid three ticks all showing "1.16").
+REPORT_HOVER_PRICE_DECIMALS = 8
+REPORT_HOVER_PRICE_NUMERAL = "0,0.00000000"
+# Hover panel: match legend fill in _apply_report_figure_style (Bokeh tooltip reads CSS vars on body)
+REPORT_HOVER_PANEL_BG = "#121b2c"
 
 try:
     from bokeh.models import InlineStyleSheet
@@ -125,6 +139,10 @@ body {{
   padding: 16px 20px 28px 20px !important;
   box-sizing: border-box;
   --background-color: {plot_chrome_bg} !important;
+  /* HoverTool shadow host: align panel + default text with axes/legend (tuple tooltips use cyan labels) */
+  --tooltip-text: {REPORT_AXIS_TEXT};
+  --tooltip-color: {REPORT_HOVER_PANEL_BG};
+  --tooltip-border: {REPORT_GRID};
 }}
 :root, html {{
   --background-color: {plot_chrome_bg} !important;
@@ -181,9 +199,12 @@ def _apply_report_figure_style(p) -> None:
         g.minor_grid_line_color = None
     leg = p.legend
     if leg:
-        leg.background_fill_color = "#121b2c"
+        leg.background_fill_color = REPORT_HOVER_PANEL_BG
         leg.border_line_color = None
         leg.label_text_color = REPORT_AXIS_TEXT
+
+    # Avoid scientific notation on linear y (e.g. BTC ~120000 → "120,000.00" not "1.2e+5").
+    p.yaxis.formatter = NumeralTickFormatter(format=REPORT_Y_AXIS_NUMERAL_FORMAT)
 
     if _REPORT_ROUNDED_PLOT_STYLESHEET is not None and hasattr(p, "stylesheets"):
         existing = list(p.stylesheets) if p.stylesheets else []
@@ -191,16 +212,104 @@ def _apply_report_figure_style(p) -> None:
             p.stylesheets = existing + [_REPORT_ROUNDED_PLOT_STYLESHEET]
 
 
+def _report_hover_tooltip_html(rows: list[tuple[str, str]]) -> str:
+    """
+    HTML HoverTool template with label/value colors matching axes and legend.
+
+    Tuple-based tooltips use Bokeh's default table, which styles row labels cyan
+    inside the tooltip shadow tree; HTML strings bypass that and match the report.
+    """
+    lab = REPORT_AXIS_TEXT
+    val = REPORT_AXIS_TEXT
+    out = [
+        '<div style="display:table;border-spacing:4px 2px;font-size:13px;'
+        "font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;\">"
+    ]
+    for label, field in rows:
+        out.append(
+            '<div style="display:table-row;">'
+            f'<span style="display:table-cell;text-align:right;color:{lab};padding-right:8px;">'
+            f"{html.escape(label)}</span>"
+            f'<span style="display:table-cell;color:{val};">{field}</span>'
+            "</div>"
+        )
+    out.append("</div>")
+    return "".join(out)
+
+
+def _fmt_hover_price_optional(x) -> str:
+    """Format a price for tooltips; non-finite → em dash. Up to 8 dp, trim trailing zeros."""
+    if x is None:
+        return "—"
+    try:
+        xf = float(x)
+    except (TypeError, ValueError):
+        return "—"
+    if math.isnan(xf) or math.isinf(xf):
+        return "—"
+    neg = xf < 0
+    ax = abs(xf)
+    raw = f"{ax:.{REPORT_HOVER_PRICE_DECIMALS}f}".rstrip("0").rstrip(".")
+    if not raw:
+        return "0"
+    if "." in raw:
+        ip, fp = raw.split(".", 1)
+    else:
+        ip, fp = raw, ""
+    try:
+        ip_fmt = f"{int(ip):,}"
+    except ValueError:
+        ip_fmt = ip
+    out = ip_fmt + ("." + fp if fp else "")
+    return ("-" if neg else "") + out
+
+
+def _fmt_metric_value(x: float) -> str:
+    """Format a scalar for the summary card; non-finite values won't break HTML."""
+    if isinstance(x, (int, float)):
+        if math.isinf(x):
+            return "∞" if x > 0 else "-∞"
+        if math.isnan(x):
+            return "N/A"
+    try:
+        xf = float(x)
+    except (TypeError, ValueError):
+        return "N/A"
+    if math.isinf(xf):
+        return "∞" if xf > 0 else "-∞"
+    if math.isnan(xf):
+        return "N/A"
+    return f"{xf:.4f}"
+
+
+def _equity_cumprod_stable(r) -> np.ndarray:
+    """
+    Cumulative product ∏(1+r) via log1p + cumsum + exp — avoids overflow on long series
+    (plain (1+r).cum_prod() can hit inf and blank the Bokeh equity pane).
+    """
+    r = np.asarray(r, dtype=np.float64)
+    r = np.where(np.isfinite(r), r, 0.0)
+    r = np.clip(r, -0.999999, 50.0)
+    return np.exp(np.cumsum(np.log1p(r)))
+
+
 def _performance_summary_div(results: Dict[str, Any]) -> Div:
     """
     Plain HTML metrics block (not a figure) — label/value rows matching report styling.
     """
-    pf = float(results.get("profit_factor") or 0)
-    sharpe = float(results.get("sharpe_ratio") or 0)
-    sortino = float(results.get("sortino_ratio") or 0)
-    max_dd = float(results.get("max_drawdown") or 0)
-    total_return = float(results.get("total_return") or 0)
-    win_rate = float(results.get("win_rate") or 0)
+    def _to_float(key: str, default: float = 0.0) -> float:
+        v = results.get(key, default)
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return default
+
+    pf = _to_float("profit_factor")
+    sharpe = _to_float("sharpe_ratio")
+    sortino = _to_float("sortino_ratio")
+    max_dd = _to_float("max_drawdown")
+    total_return = _to_float("total_return")
+    win_rate = _to_float("win_rate")
 
     bg = REPORT_PLOT_BG
     val_color = COLOR_METRIC_TEXT
@@ -217,12 +326,12 @@ def _performance_summary_div(results: Dict[str, Any]) -> Div:
         )
 
     inner = (
-        row("Profit factor", f"{pf:.4f}")
-        + row("Sharpe", f"{sharpe:.4f}")
-        + row("Sortino", f"{sortino:.4f}")
-        + row("Max drawdown", f"{max_dd:.4f}")
-        + row("Total return", f"{total_return:.4f}")
-        + row("Win rate", f"{win_rate:.4f}")
+        row("Profit factor", _fmt_metric_value(pf))
+        + row("Sharpe", _fmt_metric_value(sharpe))
+        + row("Sortino", _fmt_metric_value(sortino))
+        + row("Max drawdown", _fmt_metric_value(max_dd))
+        + row("Total return", _fmt_metric_value(total_return))
+        + row("Win rate", _fmt_metric_value(win_rate))
     )
 
     block = f"""
@@ -251,6 +360,52 @@ def _performance_summary_div(results: Dict[str, Any]) -> Div:
     )
 
 
+def _add_linked_vertical_crosshair(
+    figures: list,
+    *,
+    line_color: str = REPORT_GRID,
+    line_alpha: float = 0.9,
+    line_width: int = 1,
+) -> None:
+    """
+    Vertical line at pointer x, synchronized across stacked figures (same ``x_range``).
+
+    Uses ``Span`` + ``MouseMove`` so one crosshair tracks horizontally across price,
+    MACD, position, equity, etc.
+    """
+    if not figures:
+        return
+    spans: list[Span] = []
+    for p in figures:
+        span = Span(
+            dimension="height",
+            line_color=line_color,
+            line_alpha=line_alpha,
+            line_width=line_width,
+            line_dash=[5, 3],
+            visible=False,
+        )
+        p.add_layout(span)
+        spans.append(span)
+
+    args = {f"s{i}": s for i, s in enumerate(spans)}
+    hide = "\n        ".join(f"s{i}.visible = false;" for i in range(len(spans)))
+    show = "\n        ".join(
+        f"s{i}.location = x;\n        s{i}.visible = true;" for i in range(len(spans))
+    )
+    code = f"""
+    const x = cb_obj.x;
+    if (x === null || x === undefined || (typeof x === 'number' && !isFinite(x))) {{
+        {hide}
+        return;
+    }}
+    {show}
+    """
+    cb = CustomJS(args=args, code=code)
+    for p in figures:
+        p.js_on_event(MouseMove, cb)
+
+
 def _median_bar_width_ms(timestamps: pl.Series) -> float:
     """Bar width in milliseconds for Bokeh datetime axes (fraction of typical spacing)."""
     if len(timestamps) < 2:
@@ -261,16 +416,145 @@ def _median_bar_width_ms(timestamps: pl.Series) -> float:
     return med_ns * 0.8 / 1e6
 
 
+def _position_side_scalar(x: float) -> int:
+    """Map position signal to -1 / 0 / 1 (tolerates float enums)."""
+    if not math.isfinite(x) or abs(x) < 0.25:
+        return 0
+    return 1 if x > 0 else -1
+
+
+def _add_trade_risk_reward_zones(
+    p,
+    data: pl.DataFrame,
+    signal_result,
+    stop_s: pl.Series,
+    tp_s: pl.Series,
+    bar_width_ms: float,
+) -> None:
+    """
+    Draw RR profit (green) and risk (red) quads from entry bar through exit bar for each
+    open position, when ``get_trade_levels_for_plot`` supplies aligned stop/take-profit.
+
+    Rendered behind price glyphs (caller should invoke before candles/lines).
+    """
+    n = len(data)
+    if n == 0 or len(stop_s) != n or len(tp_s) != n:
+        return
+
+    pos = np.asarray(
+        signal_result.position_signals.cast(pl.Float64).to_numpy(),
+        dtype=np.float64,
+    )
+    if len(pos) != n:
+        return
+
+    close = np.asarray(data["close"].to_numpy(), dtype=np.float64)
+    ts = data["timestamp"].to_numpy()
+    slo = np.asarray(stop_s.to_numpy(), dtype=np.float64)
+    tpo = np.asarray(tp_s.to_numpy(), dtype=np.float64)
+
+    half_w = max(int(bar_width_ms * 0.5), 1)
+    td_half = np.timedelta64(half_w, "ms")
+
+    gl, gr, gb, gt = [], [], [], []
+    rl, rr, rb, rt = [], [], [], []
+
+    i = 0
+    while i < n:
+        side = _position_side_scalar(float(pos[i]))
+        if side == 0:
+            i += 1
+            continue
+        entry_i = i
+        j = i + 1
+        while j < n and _position_side_scalar(float(pos[j])) == side:
+            j += 1
+        exit_i = j - 1
+
+        entry_px = float(close[entry_i])
+        sl = float(slo[entry_i])
+        tp = float(tpo[entry_i])
+        if not all(math.isfinite(x) for x in (entry_px, sl, tp)):
+            i = j
+            continue
+
+        if side == 1:
+            if not (sl < entry_px < tp):
+                i = j
+                continue
+            g_lo, g_hi = entry_px, tp
+            r_lo, r_hi = sl, entry_px
+        else:
+            if not (tp < entry_px < sl):
+                i = j
+                continue
+            g_lo, g_hi = tp, entry_px
+            r_lo, r_hi = entry_px, sl
+
+        t_left = ts[entry_i] - td_half
+        t_right = ts[exit_i] + td_half
+
+        gl.append(t_left)
+        gr.append(t_right)
+        gb.append(min(g_lo, g_hi))
+        gt.append(max(g_lo, g_hi))
+        rl.append(t_left)
+        rr.append(t_right)
+        rb.append(min(r_lo, r_hi))
+        rt.append(max(r_lo, r_hi))
+
+        i = j
+
+    if gl:
+        p.quad(
+            left=gl,
+            right=gr,
+            bottom=gb,
+            top=gt,
+            fill_color=COLOR_RR_PROFIT_ZONE,
+            fill_alpha=0.2,
+            line_color=None,
+            legend_label="RR profit zone",
+        )
+    if rl:
+        p.quad(
+            left=rl,
+            right=rr,
+            bottom=rb,
+            top=rt,
+            fill_color=COLOR_RR_RISK_ZONE,
+            fill_alpha=0.2,
+            line_color=None,
+            legend_label="RR risk zone",
+        )
+
+
 class BokehInteractivePlotCreator:
     """Creates interactive plots using Bokeh"""
     
     def __init__(self, plots_dir: str):
         self.plots_dir = plots_dir
         
-    def create_interactive_analysis(self, data: pl.DataFrame, signal_result, 
-                                   results: Dict[str, Any], test_name: str = "analysis", 
-                                   show_plot: bool = True, version_manager=None, custom_plots=None) -> Optional[str]:
-        """Create interactive analysis using Bokeh"""
+    def create_interactive_analysis(
+        self,
+        data: pl.DataFrame,
+        signal_result,
+        results: Dict[str, Any],
+        test_name: str = "analysis",
+        show_plot: bool = True,
+        version_manager=None,
+        custom_plots=None,
+        strategy=None,
+    ) -> Optional[str]:
+        """Create interactive analysis using Bokeh.
+
+        ``strategy`` may implement ``add_price_overlays(price_figure, data, signal_result, *, results=...)``
+        to draw EMAs/bands on the main price pane (after OHLC and signals).
+
+        If ``strategy.get_trade_levels_for_plot`` returns aligned stop/take-profit series,
+        the price pane also draws green (profit) and red (risk) RR zones per trade behind
+        the price series—no per-strategy chart code required.
+        """
         
         try:
             print(f"\n=== CREATING BOKEH INTERACTIVE PLOT ===")
@@ -303,7 +587,23 @@ class BokehInteractivePlotCreator:
                 tools="pan,wheel_zoom,box_zoom,reset,save",
                 toolbar_location="above",
             )
-            
+
+            levels = None
+            has_trade_levels = False
+            stop_s = tp_s = None
+            if strategy is not None:
+                levels = strategy.get_trade_levels_for_plot(data_copy, signal_result)
+            if levels is not None:
+                stop_s, tp_s = levels
+                if len(stop_s) == len(data_copy):
+                    has_trade_levels = True
+
+            w_ms = _median_bar_width_ms(data_copy["timestamp"])
+            if has_trade_levels and stop_s is not None and tp_s is not None:
+                _add_trade_risk_reward_zones(
+                    p1, data_copy, signal_result, stop_s, tp_s, w_ms
+                )
+
             # Candlesticks (OHLC): one legend group, hidden by default; toggle on when zoomed
             if all(c in data_copy.columns for c in ("open", "high", "low", "close")):
                 ts_np = data_copy["timestamp"].to_numpy()
@@ -312,7 +612,6 @@ class BokehInteractivePlotCreator:
                 high_np = np.asarray(data_copy["high"].to_numpy(), dtype=np.float64)
                 low_np = np.asarray(data_copy["low"].to_numpy(), dtype=np.float64)
                 close_np = np.asarray(data_copy["close"].to_numpy(), dtype=np.float64)
-                w_ms = _median_bar_width_ms(data_copy["timestamp"])
                 body_lo = np.minimum(open_np, close_np)
                 body_hi = np.maximum(open_np, close_np)
                 inc = close_np >= open_np
@@ -325,7 +624,8 @@ class BokehInteractivePlotCreator:
                     x1=ts_np,
                     y1=low_np,
                     line_color=COLOR_CANDLE_WICK,
-                    line_width=1,
+                    line_width=COLOR_CANDLE_WICK_WIDTH,
+                    line_alpha=1.0,
                     legend_label="Candlesticks",
                 )
                 candle_renderers = [wick_r]
@@ -336,7 +636,10 @@ class BokehInteractivePlotCreator:
                         bottom=body_lo[inc],
                         top=body_hi[inc],
                         fill_color=COLOR_CANDLE_UP_FILL,
+                        fill_alpha=1.0,
                         line_color=COLOR_CANDLE_UP_LINE,
+                        line_alpha=1.0,
+                        line_width=1,
                         legend_label="Candlesticks",
                     )
                     candle_renderers.append(up_r)
@@ -347,50 +650,101 @@ class BokehInteractivePlotCreator:
                         bottom=body_lo[~inc],
                         top=body_hi[~inc],
                         fill_color=COLOR_CANDLE_DN_FILL,
+                        fill_alpha=1.0,
                         line_color=COLOR_CANDLE_DN_LINE,
+                        line_alpha=1.0,
+                        line_width=1,
                         legend_label="Candlesticks",
                     )
                     candle_renderers.append(down_r)
                 for r in candle_renderers:
                     r.visible = False
 
-            # Close line (toggle off when using candlesticks zoomed in)
-            p1.line(
-                data_copy["timestamp"],
-                data_copy["close"],
+            # Close line: ColumnDataSource so hover can show RR stop / take profit when the strategy provides them
+            close_cds_data: dict = {
+                "timestamp": np.asarray(data_copy["timestamp"].to_numpy()),
+                "close": np.asarray(data_copy["close"].to_numpy(), dtype=np.float64),
+            }
+            if has_trade_levels and stop_s is not None and tp_s is not None:
+                sv = stop_s.to_numpy()
+                tv = tp_s.to_numpy()
+                close_cds_data["stop_loss_str"] = [_fmt_hover_price_optional(x) for x in sv]
+                close_cds_data["take_profit_str"] = [_fmt_hover_price_optional(x) for x in tv]
+            cds_close = ColumnDataSource(data=close_cds_data)
+            close_r = p1.line(
+                x="timestamp",
+                y="close",
+                source=cds_close,
                 line_width=2,
                 color=COLOR_CLOSE_LINE,
                 legend_label="Close (line)",
             )
-            
-            # Signal markers (optimized with ColumnDataSource)
-            plot_data = signal_result.get_signal_changes_for_plotting(data_copy)
+
+            entry_r = None
+            exit_r = None
+            if has_trade_levels and stop_s is not None and tp_s is not None:
+                plot_data = signal_result.get_signal_changes_for_plotting(
+                    data_copy, stop_loss=stop_s, take_profit=tp_s
+                )
+            else:
+                plot_data = signal_result.get_signal_changes_for_plotting(data_copy)
             if len(plot_data) > 0:
-                # Convert to lists for filtering
-                timestamps = plot_data['timestamp'].to_list()
-                prices = plot_data['price'].to_list()
-                signal_changes = plot_data['signal_change'].to_list()
-                
-                # Separate signals by type
+                bar_indices = plot_data["index"].to_list()
+                timestamps = plot_data["timestamp"].to_list()
+                prices = plot_data["price"].to_list()
+                signal_changes = plot_data["signal_change"].to_list()
+
                 entry_timestamps = []
                 entry_prices = []
+                entry_labels: list[str] = []
+                entry_sl_str: list[str] = []
+                entry_tp_str: list[str] = []
                 exit_timestamps = []
                 exit_prices = []
-                
-                for i, signal in enumerate(signal_changes):
+
+                sv_arr = tv_arr = None
+                if has_trade_levels and stop_s is not None and tp_s is not None:
+                    sv_arr = stop_s.to_numpy()
+                    tv_arr = tp_s.to_numpy()
+
+                for j, signal in enumerate(signal_changes):
                     signal_str = str(signal)
-                    if 'TO_LONG' in signal_str or 'TO_SHORT' in signal_str:
-                        entry_timestamps.append(timestamps[i])
-                        entry_prices.append(prices[i])
-                    elif 'TO_NEUTRAL' in signal_str:
-                        exit_timestamps.append(timestamps[i])
-                        exit_prices.append(prices[i])
-                
-                # Plot entry signals (up arrows)
+                    bar_idx = int(bar_indices[j])
+                    if "TO_LONG" in signal_str or "TO_SHORT" in signal_str:
+                        entry_timestamps.append(timestamps[j])
+                        entry_prices.append(prices[j])
+                        entry_labels.append(
+                            "Long entry" if "TO_LONG" in signal_str else "Short entry"
+                        )
+                        if sv_arr is not None and tv_arr is not None and 0 <= bar_idx < len(
+                            sv_arr
+                        ):
+                            entry_sl_str.append(
+                                _fmt_hover_price_optional(sv_arr[bar_idx])
+                            )
+                            entry_tp_str.append(
+                                _fmt_hover_price_optional(tv_arr[bar_idx])
+                            )
+                        else:
+                            entry_sl_str.append("—")
+                            entry_tp_str.append("—")
+                    elif "TO_NEUTRAL" in signal_str:
+                        exit_timestamps.append(timestamps[j])
+                        exit_prices.append(prices[j])
+
                 if entry_timestamps:
-                    p1.scatter(
-                        entry_timestamps,
-                        entry_prices,
+                    entry_dict = dict(
+                        timestamp=entry_timestamps,
+                        price=entry_prices,
+                        signal_label=entry_labels,
+                        sl_str=entry_sl_str,
+                        tp_str=entry_tp_str,
+                    )
+                    entry_src = ColumnDataSource(data=entry_dict)
+                    entry_r = p1.scatter(
+                        x="timestamp",
+                        y="price",
+                        source=entry_src,
                         size=14,
                         color=COLOR_ENTRY,
                         marker="triangle",
@@ -401,9 +755,17 @@ class BokehInteractivePlotCreator:
                     )
 
                 if exit_timestamps:
-                    p1.scatter(
-                        exit_timestamps,
-                        exit_prices,
+                    exit_src = ColumnDataSource(
+                        data=dict(
+                            timestamp=exit_timestamps,
+                            price=exit_prices,
+                            signal_label=["Exit"] * len(exit_timestamps),
+                        )
+                    )
+                    exit_r = p1.scatter(
+                        x="timestamp",
+                        y="price",
+                        source=exit_src,
                         size=14,
                         color=COLOR_EXIT,
                         marker="inverted_triangle",
@@ -414,9 +776,22 @@ class BokehInteractivePlotCreator:
                     )
 
             _apply_report_figure_style(p1)
+            # Override default 2-decimal Y formatter so price ticks match instrument precision.
+            p1.yaxis.formatter = NumeralTickFormatter(format=REPORT_HOVER_PRICE_NUMERAL)
             p1.legend.location = "top_left"
             p1.legend.click_policy = "hide"
             p1.yaxis.axis_label = "Price ($)"
+
+            if strategy is not None:
+                try:
+                    strategy.add_price_overlays(
+                        p1,
+                        data_copy,
+                        signal_result,
+                        results=results,
+                    )
+                except Exception as e:
+                    print(f"Warning: add_price_overlays failed: {e}")
             
             # 2. Position States Plot
             p2 = figure(
@@ -489,12 +864,20 @@ class BokehInteractivePlotCreator:
                 x_range=p1.x_range,  # Link x-axis
             )
             
-            # Calculate returns (optimized conversion, no warnings)
+            # Equity: match framework / strategy returns (includes RR exit fills when implemented).
             numeric_signals = signal_result.position_signals.cast(pl.Float64)
-            returns = numeric_signals * np.log(data_copy['close']).diff().shift(-1)
-            cumulative_returns = (1 + returns).cum_prod()
-            buy_hold_returns = (1 + np.log(data_copy['close']).diff().shift(-1)).cum_prod()
-            
+            if strategy is not None and hasattr(strategy, "_calculate_strategy_returns"):
+                returns = strategy._calculate_strategy_returns(data_copy, signal_result)
+            else:
+                returns = numeric_signals * np.log(data_copy["close"]).diff().shift(-1)
+            r_strat = np.asarray(returns.to_numpy(), dtype=np.float64)
+            r_bh = np.asarray(
+                (np.log(data_copy["close"]).diff().shift(-1)).to_numpy(),
+                dtype=np.float64,
+            )
+            cumulative_returns = _equity_cumprod_stable(np.nan_to_num(r_strat, nan=0.0))
+            buy_hold_returns = _equity_cumprod_stable(np.nan_to_num(r_bh, nan=0.0))
+
             p3.line(
                 data_copy["timestamp"],
                 cumulative_returns,
@@ -518,16 +901,65 @@ class BokehInteractivePlotCreator:
             # 4. Performance summary — HTML text block (not a figure)
             performance_summary = _performance_summary_div(results)
 
-            # Add hover tools
-            hover1 = HoverTool(tooltips=[("Date", "@x{%F}"), ("Price", "@y{$0,0.00}")])
-            hover1.formatters = {"@x": "datetime"}
-            p1.add_tools(hover1)
-            
-            hover2 = HoverTool(tooltips=[("Date", "@x{%F}"), ("Position", "@y")])
+            # Price pane: separate hovers so close line can show stop/TP columns without breaking markers
+            if has_trade_levels:
+                price_tip_rows = [
+                    ("Date", "@timestamp{%F}"),
+                    ("Price", f"@close{{{REPORT_HOVER_PRICE_NUMERAL}}}"),
+                    ("Stop loss", "@stop_loss_str"),
+                    ("Take profit", "@take_profit_str"),
+                ]
+            else:
+                price_tip_rows = [
+                    ("Date", "@timestamp{%F}"),
+                    ("Price", f"@close{{{REPORT_HOVER_PRICE_NUMERAL}}}"),
+                ]
+            hover_close = HoverTool(
+                renderers=[close_r],
+                tooltips=_report_hover_tooltip_html(price_tip_rows),
+            )
+            hover_close.formatters = {"@timestamp": "datetime"}
+            p1.add_tools(hover_close)
+            # Entry markers: show intended SL / TP at open (values keyed by bar index from plot_data)
+            if entry_r is not None:
+                entry_tip_rows = [
+                    ("Date", "@timestamp{%F}"),
+                    ("Price", f"@price{{{REPORT_HOVER_PRICE_NUMERAL}}}"),
+                    ("Signal", "@signal_label"),
+                    ("SL", "@sl_str"),
+                    ("TP", "@tp_str"),
+                ]
+                hover_entry = HoverTool(
+                    renderers=[entry_r],
+                    tooltips=_report_hover_tooltip_html(entry_tip_rows),
+                )
+                hover_entry.formatters = {"@timestamp": "datetime"}
+                p1.add_tools(hover_entry)
+            if exit_r is not None:
+                hover_exit = HoverTool(
+                    renderers=[exit_r],
+                    tooltips=_report_hover_tooltip_html(
+                        [
+                            ("Date", "@timestamp{%F}"),
+                            ("Price", f"@price{{{REPORT_HOVER_PRICE_NUMERAL}}}"),
+                            ("Signal", "@signal_label"),
+                        ]
+                    ),
+                )
+                hover_exit.formatters = {"@timestamp": "datetime"}
+                p1.add_tools(hover_exit)
+
+            hover2 = HoverTool(
+                tooltips=_report_hover_tooltip_html([("Date", "@x{%F}"), ("Position", "@y")])
+            )
             hover2.formatters = {"@x": "datetime"}
             p2.add_tools(hover2)
-            
-            hover3 = HoverTool(tooltips=[("Date", "@x{%F}"), ("Returns", "@y{0.0000}")])
+
+            hover3 = HoverTool(
+                tooltips=_report_hover_tooltip_html(
+                    [("Date", "@x{%F}"), ("Returns", "@y{0.0000}")]
+                )
+            )
             hover3.formatters = {"@x": "datetime"}
             p3.add_tools(hover3)
             
@@ -539,6 +971,8 @@ class BokehInteractivePlotCreator:
                     _apply_report_figure_style(custom_plot)
                 plot_stack.extend(custom_plots)
             plot_stack.extend([p2, p3])
+
+            _add_linked_vertical_crosshair(plot_stack)
 
             layout_children = [Spacer(height=8)]
             for i, child in enumerate([performance_summary] + plot_stack):
@@ -555,17 +989,6 @@ class BokehInteractivePlotCreator:
             with open(html_file, "w", encoding="utf-8") as f:
                 f.write(html_out)
 
-            # Stable filename in the research project root (parent of plots/) for quick open in IDE;
-            # versioned file above remains the archival copy.
-            main_alias = os.path.join(os.path.dirname(self.plots_dir), "main.html")
-            try:
-                with open(main_alias, "w", encoding="utf-8") as f:
-                    f.write(html_out)
-            except OSError:
-                pass
-            else:
-                print(f"Also written to: {main_alias}")
-            
             # Open the saved HTML (same bytes as on disk). show(layout) would open a new
             # Bokeh document without our file_html post-processing (no page background).
             if show_plot:
