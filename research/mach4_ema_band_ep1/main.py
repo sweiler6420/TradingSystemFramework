@@ -2,8 +2,8 @@
 Mach4 EMA Band EP1 — research script
 ====================================
 
-Fetches OHLCV for EUR/USD forex (hourly bars via Yahoo), runs in-sample excellence test
-with EMA band overlays.
+Fetches OHLCV for EUR/USD forex (hourly aggregates via Massive.com / Polygon API).
+Set ``MASSIVE_API_KEY`` in the environment (see Massive / Polygon account).
 """
 
 import os
@@ -17,14 +17,14 @@ from datetime import date, datetime
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from framework import DataHandler
-from framework.data_sources import SessionPolicy, YFinanceProvider, ensure_cached
+from framework.data_sources import MassiveProvider, SessionPolicy, ensure_cached
 
 from tests.insample_excellence_test import InSampleExcellenceTest
 
 from strategies.ema_band_ep1_strategy import EmaBandEp1Strategy
 
-# Yahoo Finance forex: EUR/USD spot. Hourly bars (UTC timestamps).
-EURUSD_SYMBOL = "EURUSD=X"
+# Massive forex ticker (C: prefix). Multiplier 1 × hour maps from interval ``1h``.
+EURUSD_SYMBOL = "C:EURUSD"
 BAR_INTERVAL = "1h"
 
 
@@ -36,21 +36,20 @@ def run_insample_excellence_test():
 
     project_root = os.path.dirname(__file__)
     cache_dir = os.path.join(project_root, "data")
-    # US_EQUITY_EXTENDED turns on Yahoo ``prepost=True`` (pre/post extended session in the API).
-    # For FX, Yahoo may still return the same hourly grid; load keeps all rows (no US RTH filter).
-    session = SessionPolicy.US_EQUITY_EXTENDED
-    print(f"Session policy: {session.value} (Yahoo pre/post / extended fetch)")
+    # 24h UTC: keep all FX bars (Massive aggregates are UTC; no US RTH filter).
+    session = SessionPolicy.CRYPTO_UTC_24H
+    print(f"Session policy: {session.value} (Massive FX / all bars)")
     data_path = ensure_cached(
-        YFinanceProvider(session_policy=session),
+        MassiveProvider(session_policy=session),
         symbol=EURUSD_SYMBOL,
         interval=BAR_INTERVAL,
-        start=date(2024, 6, 1),
-        end=date(2026, 1, 1),
+        start=date(2024, 3, 1),
+        end=date(2026, 3, 1),
         cache_dir=cache_dir,
     )
     data_handler = DataHandler(str(data_path), session_policy=session)
     data_handler.load_data()
-    data_handler.filter_date_range(2024, 2026)
+    data_handler.filter_date_range(2024, 2027)
     data = data_handler.get_data()
 
     print(

@@ -8,3 +8,7 @@ class YFinanceDataError(ValueError):
     Typical causes: symbol not found / delisted, intraday range outside Yahoo's
     rolling ~730-day window, or repeated empty responses for the requested chunks.
     """
+
+
+class MassiveDataError(ValueError):
+    """Raised when the Massive.com (formerly Polygon) client cannot return usable OHLCV."""

@@ -37,9 +37,9 @@ EMA_SLOW = 100
 EMA_TREND = 200
 
 # Staged-setup windows (bars = ticks on whatever timeframe you load, e.g. 1h → hours).
-MAX_BARS_WAIT_TREND_CHANGE = 25
+MAX_BARS_WAIT_TREND_CHANGE = 50
 MAX_BARS_WAIT_PULLBACK = 50
-MAX_BARS_WAIT_TREND_BREAKOUT = 25
+MAX_BARS_WAIT_TREND_BREAKOUT = 50
 
 # Prior bars required on the correct side of EMA200 before the first cross into the setup.
 PRIOR_BARS_CLOSE_BELOW_EMA200 = 25
