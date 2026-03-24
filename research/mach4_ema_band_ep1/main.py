@@ -2,7 +2,7 @@
 Mach4 EMA Band EP1 — research entry (optional)
 ============================================
 
-Preferred: from repo root run ``python research/run_project.py mach4_ema_band_ep1``
+Preferred: from repo root run ``python research/run.py mach4_ema_band_ep1``
 (or ``4`` / ``mach4`` if unambiguous). That uses :mod:`research.research_runner` and
 ``tests/config.py`` — same behavior as this file.
 

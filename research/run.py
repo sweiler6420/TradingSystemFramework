@@ -4,9 +4,9 @@ Run a research project by mach number or folder name
 
 From the repository root::
 
-    uv run python research/run_project.py 4
-    uv run python research/run_project.py mach4
-    uv run python research/run_project.py mach4_ema_band_ep1
+    uv run python research/run.py 4
+    uv run python research/run.py mach4
+    uv run python research/run.py mach4_ema_band_ep1
 
 Resolves ``research/mach{N}_*`` when you pass a numeric id or ``mach{N}``. If more
 than one folder matches, pass the **full** project directory name.

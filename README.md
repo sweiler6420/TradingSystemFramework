@@ -23,7 +23,7 @@ That creates or updates `.venv` and installs the project in editable mode. Run t
 
 ```bash
 uv run python research/mach4_ema_band_ep1/main.py
-# or: uv run python research/run_project.py 4
+# or: uv run python research/run.py 4
 ```
 
 Or activate the venv and use `python` as usual:

@@ -72,8 +72,8 @@ Each project’s `tests/config.py` describes **which** validation stages to run 
 4. Run the research: `python main.py` **or** from the repo root use the launcher (by mach number or full folder name):
 
 ```bash
-uv run python research/run_project.py 4
-uv run python research/run_project.py mach4_ema_band_ep1
+uv run python research/run.py 4
+uv run python research/run.py mach4_ema_band_ep1
 ```
 
 If two folders exist (`mach4_foo` and `mach4_bar`), the numeric form is ambiguous — pass the full directory name.

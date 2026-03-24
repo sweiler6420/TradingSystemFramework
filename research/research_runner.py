@@ -1,7 +1,7 @@
 """
 Shared research orchestration driven by each project's ``tests/config.py``.
 
-``run_project.py`` calls :func:`run_project_from_config` so logic is not duplicated in
+``run.py`` calls :func:`run_project_from_config` so logic is not duplicated in
 per-project ``main.py`` files.
 """
 

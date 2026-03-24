@@ -131,13 +131,13 @@ def create_research_project(project_name: str, description: str = "") -> str:
     if _mach_m:
         _n = _mach_m.group(1)
         _preferred = (
-            f"Preferred: from repo root run ``python research/run_project.py {clean_name}``\n"
+            f"Preferred: from repo root run ``python research/run.py {clean_name}``\n"
             f"(or ``{_n}`` / ``mach{_n}`` if unambiguous). That uses :mod:`research.research_runner` and\n"
             f"``tests/config.py`` — same behavior as this file."
         )
     else:
         _preferred = (
-            f"Preferred: from repo root run ``python research/run_project.py {clean_name}``.\n"
+            f"Preferred: from repo root run ``python research/run.py {clean_name}``.\n"
             f"That uses :mod:`research.research_runner` and\n"
             f"``tests/config.py`` — same behavior as this file."
         )
@@ -294,7 +294,7 @@ def create_research_project(project_name: str, description: str = "") -> str:
     print(f"README: {project_dir}/README.md")
     print(f"Config: {project_dir}/tests/config.py")
     print(f"\nTo start research (from repo root), run:")
-    print(f"   python research/run_project.py {clean_name}")
+    print(f"   python research/run.py {clean_name}")
     print(f"   # or: cd {project_dir} && python main.py")
     
     return project_dir
