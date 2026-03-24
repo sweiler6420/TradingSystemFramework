@@ -19,6 +19,7 @@ class Mach3MacdStrategy(SignalBasedStrategy):
         fast_period: int = 12,
         slow_period: int = 26,
         signal_period: int = 9,
+        column: str = "close",
     ):
         super().__init__("Mach3 MACD Crossover", data)
         self.macd_feature = MacdFeature(
@@ -26,10 +27,12 @@ class Mach3MacdStrategy(SignalBasedStrategy):
             fast_period=fast_period,
             slow_period=slow_period,
             signal_period=signal_period,
+            column=column,
         )
         self.fast_period = fast_period
         self.slow_period = slow_period
         self.signal_period = signal_period
+        self.column = self.macd_feature.column
         self.position = 0
 
     def generate_raw_signal(self, **kwargs) -> pl.Series:

@@ -10,7 +10,7 @@ import numpy as np
 from typing import Dict, Any, Optional, Tuple
 from framework.strategies.base_strategy import BaseStrategy
 from framework.signals import (
-    PositionState, SignalChange, SignalResult, SignalManager,
+    PositionState, SignalChange, SignalManager, SignalResult,
     plot_signals, plot_position_states, calculate_strategy_returns
 )
 
@@ -41,7 +41,7 @@ class SignalBasedStrategy(BaseStrategy):
 
         # Generate raw signals
         raw_signals = self.generate_raw_signal(**kwargs)
-        
+
         # Auto-detect signal type - check the actual values, not the types
         if isinstance(raw_signals[0], SignalChange):
             signal_type = SignalChange
@@ -57,8 +57,8 @@ class SignalBasedStrategy(BaseStrategy):
             else:
                 signal_type = SignalChange  # Default to SignalChange
         
-        # Generate exit conditions
-        exit_conditions = self.generate_exit_conditions(data, **kwargs)
+        # Generate exit conditions (may depend on raw_signals, e.g. stop / RR)
+        exit_conditions = self.generate_exit_conditions(data, raw_signals=raw_signals, **kwargs)
         
         # Use signal manager to generate position signals and changes
         signal_result = self.signal_manager.generate_signals(raw_signals, exit_conditions, signal_type)
@@ -79,15 +79,53 @@ class SignalBasedStrategy(BaseStrategy):
         raise NotImplementedError("Subclasses must implement generate_raw_signal")
 
     
-    def generate_exit_conditions(self, data: pl.DataFrame, **kwargs) -> Optional[pl.Series]:
+    def add_price_overlays(
+        self,
+        price_figure,
+        data: pl.DataFrame,
+        signal_result: SignalResult,
+        *,
+        results: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ) -> None:
+        """Optional hook: draw on the main Bokeh price figure (same y-scale as OHLC).
+
+        Invoked after candlesticks, close line, and entry/exit markers. Override to add
+        EMAs, bands, or horizontal levels. Oscillators (MACD, RSI) usually belong in
+        :meth:`create_custom_plots` as separate panes.
+        """
+        pass
+
+    def get_trade_levels_for_plot(
+        self,
+        data: pl.DataFrame,
+        signal_result: SignalResult,
+    ) -> Optional[tuple[pl.Series, pl.Series]]:
+        """Optional per-bar stop / take-profit (same length as ``data``) for Bokeh reports.
+
+        Return ``(stop_loss, take_profit)`` with null/NaN when flat. When provided, the
+        interactive price pane also draws RR profit/risk rectangles (entry→exit) and
+        enriches hovers. Default: ``None`` (strategies with RR levels can override).
+        """
+        return None
+
+    def generate_exit_conditions(
+        self,
+        data: pl.DataFrame,
+        raw_signals: Optional[pl.Series] = None,
+        **kwargs,
+    ) -> Optional[pl.Series]:
         """Generate exit conditions (True = exit position)
-        
-        This method can be overridden by subclasses for custom exit logic.
-        
+
+        This method can be overridden by subclasses for custom exit logic (stops, RR targets,
+        trend filters). ``raw_signals`` is the output of :meth:`generate_raw_signal` for the
+        same run so exits can reference entries (e.g. per-trade stop from entry bar).
+
         Args:
             data: Price data
+            raw_signals: Raw :class:`SignalChange` series from :meth:`generate_raw_signal`
             **kwargs: Strategy-specific parameters
-            
+
         Returns:
             Optional[pl.Series]: Exit conditions (True = exit, False/None = hold)
         """

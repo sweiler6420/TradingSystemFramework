@@ -7,13 +7,13 @@ Configuration settings for all research tests.
 
 # Data Configuration
 DATA_CONFIG = {
-    'data_file': 'framework/data/BTCUSD1hour.pq',
-    'start_year': 2023,
-    'end_year': 2024,
-    'insample_start': '2023-01-01',
-    'insample_end': '2023-06-30',
-    'outsample_start': '2023-07-01',
-    'outsample_end': '2023-12-31'
+    'data_file': 'data/BTC-USD_1h_*.parquet',  # yfinance cache pattern; main uses ensure_cached
+    'start_year': 2024,
+    'end_year': 2026,
+    'insample_start': '2024-06-01',
+    'insample_end': '2024-12-31',
+    'outsample_start': '2025-01-01',
+    'outsample_end': '2025-12-31'
 }
 
 # Strategy Configuration

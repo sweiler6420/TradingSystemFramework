@@ -12,15 +12,16 @@ import numpy as np
 import polars as pl
 
 from framework.features.base_feature import BaseFeature
-from framework.features.ema_feature import EmaFeature
+from framework.features.ema_feature import EmaFeature, validate_ohlc_price_column
 
 
 class MacdFeature(BaseFeature):
     """
-    MACD (default 12 / 26 / 9 on ``close``).
+    MACD (default 12 / 26 / 9).
 
-    Primary ``calculate()`` result is the MACD line. Use ``get_signal()`` and
-    ``get_histogram()`` for the other components.
+    Fast and slow EMAs use one OHLC column (default ``close``); signal EMA is on the
+    MACD line. Primary ``calculate()`` result is the MACD line. Use ``get_signal()``
+    and ``get_histogram()`` for the other components.
     """
 
     def __init__(
@@ -34,7 +35,7 @@ class MacdFeature(BaseFeature):
         self.fast_period = fast_period
         self.slow_period = slow_period
         self.signal_period = signal_period
-        self.column = column
+        self.column = validate_ohlc_price_column(column)
 
         self._macd_line: Optional[pl.Series] = None
         self._signal_line: Optional[pl.Series] = None
@@ -46,7 +47,7 @@ class MacdFeature(BaseFeature):
             fast_period=fast_period,
             slow_period=slow_period,
             signal_period=signal_period,
-            column=column,
+            column=self.column,
         )
 
     def calculate(self) -> pl.Series:
@@ -105,7 +106,7 @@ class MacdFeature(BaseFeature):
             raise ValueError("No data available for MACD plotting")
 
         try:
-            from bokeh.models import Range1d
+            from bokeh.models import NumeralTickFormatter, Range1d
             from bokeh.plotting import figure
 
             macd = self.get_macd_line()
@@ -115,7 +116,8 @@ class MacdFeature(BaseFeature):
 
             p = figure(
                 title=(
-                    f"MACD ({self.fast_period}, {self.slow_period}, {self.signal_period})"
+                    f"MACD ({self.fast_period}, {self.slow_period}, {self.signal_period}) "
+                    f"[{self.column}]"
                 ),
                 x_axis_type="datetime",
                 height=300,
@@ -173,6 +175,8 @@ class MacdFeature(BaseFeature):
 
             p.legend.location = "top_left"
             p.legend.click_policy = "hide"
+
+            p.yaxis.formatter = NumeralTickFormatter(format="0,0.0000")
 
             return p
         except ImportError:

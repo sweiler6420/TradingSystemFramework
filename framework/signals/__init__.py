@@ -14,6 +14,12 @@ from enum import Enum
 from typing import Dict, Any, Tuple, Optional
 from dataclasses import dataclass
 
+from framework.risk_reward import (
+    adjust_forward_returns_for_rr_exit_fills,
+    long_trade_bar_rr_exit_fill,
+    short_trade_bar_rr_exit_fill,
+)
+
 
 class PositionState(Enum):
     """Position states for trading strategies"""
@@ -114,48 +120,88 @@ class SignalResult:
                 counts[change.value] = count
         return counts
     
-    def get_signal_changes_for_plotting(self, data: pl.DataFrame = None) -> pl.DataFrame:
-        """Get signal changes formatted for plotting
-        
+    def get_signal_changes_for_plotting(
+        self,
+        data: pl.DataFrame = None,
+        *,
+        stop_loss: Optional[pl.Series] = None,
+        take_profit: Optional[pl.Series] = None,
+    ) -> pl.DataFrame:
+        """Get signal changes formatted for plotting.
+
         Args:
-            data: DataFrame with timestamp column to get actual timestamps
+            data: DataFrame with ``timestamp`` (and for RR exits, ``high`` / ``low``).
+            stop_loss: Optional per-bar stop (use last in-trade bar for exit fill).
+            take_profit: Optional per-bar take profit (same alignment as ``stop_loss``).
+
+        Exit markers (``LONG_TO_NEUTRAL`` / ``SHORT_TO_NEUTRAL``) use the RR intrabar
+        fill price when ``high``, ``low``, and aligned stop/tp series are supplied;
+        otherwise the bar **close** is used (legacy behavior).
         """
-        # Only get actual signal changes, not NO_CHANGE
-        signal_changes = self.signal_changes.drop_nulls()
-        
-        if len(signal_changes) == 0:
+        # Index i must align with ``data`` rows — do not iterate ``drop_nulls()`` only or
+        # timestamps/prices land on the wrong bars when nulls are present.
+        changes = self.signal_changes.to_list()
+        if len(changes) == 0:
             return pl.DataFrame()
-        
+
+        use_rr_exit_price = (
+            data is not None
+            and stop_loss is not None
+            and take_profit is not None
+            and "high" in data.columns
+            and "low" in data.columns
+            and "close" in data.columns
+            and len(data) == len(stop_loss) == len(take_profit)
+        )
+
         plot_data = []
-        for i, change_str in enumerate(signal_changes):
-            # Skip NO_CHANGE signals
-            if change_str == "NO_CHANGE":
+        for i, change_str in enumerate(changes):
+            if change_str is None:
                 continue
-                
-            # Convert string back to SignalChange enum
+            cs = change_str.value if isinstance(change_str, SignalChange) else str(change_str)
+            if cs == "NO_CHANGE":
+                continue
+
             try:
-                change_enum = SignalChange(change_str)
-                
-                # Get actual timestamp if data is provided
-                if data is not None and 'timestamp' in data.columns and i < len(data):
-                    actual_timestamp = data['timestamp'][i]
-                    actual_price = data['close'][i]
+                change_enum = (
+                    change_str if isinstance(change_str, SignalChange) else SignalChange(cs)
+                )
+                if data is not None and "timestamp" in data.columns and i < len(data):
+                    actual_timestamp = data["timestamp"][i]
+                    actual_price = float(data["close"][i])
                 else:
-                    actual_timestamp = i  # Fallback to index
-                    actual_price = 0
-                
-                plot_data.append({
-                    'index': i,
-                    'timestamp': actual_timestamp,
-                    'price': actual_price,
-                    'signal_change': change_enum,
-                    'color': change_enum.plot_color,
-                    'marker': change_enum.plot_marker
-                })
+                    actual_timestamp = i
+                    actual_price = 0.0
+
+                if use_rr_exit_price and i > 0 and change_enum in (
+                    SignalChange.LONG_TO_NEUTRAL,
+                    SignalChange.SHORT_TO_NEUTRAL,
+                ):
+                    lh = i - 1
+                    sl = float(stop_loss[lh])
+                    tp = float(take_profit[lh])
+                    lo = float(data["low"][i])
+                    hi = float(data["high"][i])
+                    if change_enum == SignalChange.LONG_TO_NEUTRAL:
+                        fill = long_trade_bar_rr_exit_fill(lo, hi, sl, tp)
+                    else:
+                        fill = short_trade_bar_rr_exit_fill(lo, hi, sl, tp)
+                    if fill is not None:
+                        actual_price = float(fill)
+
+                plot_data.append(
+                    {
+                        "index": i,
+                        "timestamp": actual_timestamp,
+                        "price": actual_price,
+                        "signal_change": change_enum,
+                        "color": change_enum.plot_color,
+                        "marker": change_enum.plot_marker,
+                    }
+                )
             except ValueError:
-                # Skip invalid signal changes
                 continue
-        
+
         return pl.DataFrame(plot_data)
 
 
@@ -303,43 +349,55 @@ class SignalManager:
             return self.current_position
 
 
-def plot_signals(data: pl.DataFrame, signal_result: SignalResult, 
-                title: str = "Strategy Signals", ax=None) -> None:
-    """Plot price with signal changes using the standardized signal system
-    
+def plot_signals(
+    data: pl.DataFrame,
+    signal_result: SignalResult,
+    title: str = "Strategy Signals",
+    ax=None,
+    *,
+    stop_loss: Optional[pl.Series] = None,
+    take_profit: Optional[pl.Series] = None,
+) -> None:
+    """Plot price with signal changes using the standardized signal system.
+
     Args:
-        data: Price data with 'close' column
+        data: Price data with ``close`` (and ``timestamp`` for time-axis plots).
         signal_result: SignalResult from signal generation
         title: Title for the plot
         ax: Optional matplotlib axis to plot on
+        stop_loss: Optional aligned SL series for RR exit marker prices
+        take_profit: Optional aligned TP series for RR exit marker prices
     """
     import matplotlib.pyplot as plt
-    
+
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(12, 6))
-    
+
     # Plot price
-    ax.plot(range(len(data)), data['close'], label='Price', alpha=0.7, linewidth=1)
-    
-    # Get signal changes for plotting
-    plot_data = signal_result.get_signal_changes_for_plotting()
-    
+    ax.plot(range(len(data)), data["close"], label="Price", alpha=0.7, linewidth=1)
+
+    plot_kw: dict = {}
+    if stop_loss is not None and take_profit is not None:
+        plot_kw["stop_loss"] = stop_loss
+        plot_kw["take_profit"] = take_profit
+    plot_data = signal_result.get_signal_changes_for_plotting(data, **plot_kw)
+
     if len(plot_data) > 0:
         # Group by signal type for legend
         signal_types = {}
-        
+
         for row in plot_data.iter_rows(named=True):
-            signal_type = row['signal_change']
+            signal_type = row["signal_change"]
             if signal_type not in signal_types:
                 signal_types[signal_type] = {
-                    'indices': [],
-                    'prices': [],
-                    'color': signal_type.plot_color,
-                    'marker': signal_type.plot_marker
+                    "indices": [],
+                    "prices": [],
+                    "color": signal_type.plot_color,
+                    "marker": signal_type.plot_marker,
                 }
-            
-            signal_types[signal_type]['indices'].append(row['index'])
-            signal_types[signal_type]['prices'].append(data[row['index'], 'close'])
+
+            signal_types[signal_type]["indices"].append(row["index"])
+            signal_types[signal_type]["prices"].append(row["price"])
         
         # Plot each signal type
         for signal_type, data_dict in signal_types.items():
@@ -387,22 +445,57 @@ def plot_position_states(data: pl.DataFrame, signal_result: SignalResult,
     ax.grid(True, alpha=0.3)
 
 
-def calculate_strategy_returns(data: pl.DataFrame, signal_result: SignalResult) -> pl.Series:
-    """Calculate strategy returns using position signals
-    
+def calculate_strategy_returns(
+    data: pl.DataFrame,
+    signal_result: SignalResult,
+    *,
+    stop_loss: Optional[pl.Series] = None,
+    take_profit: Optional[pl.Series] = None,
+) -> pl.Series:
+    """Calculate strategy returns using position signals.
+
+    When ``stop_loss`` and ``take_profit`` are provided (same length as ``data``), the
+    forward log return on the **last bar of each trade** is adjusted so the exit
+    uses the RR **stop or limit fill** (same intrabar priority as
+    :func:`framework.risk_reward.long_exit_intrabar`), not the bar **close**.
+
     Args:
-        data: Price data with 'close' column
+        data: Price data with ``close`` and (for RR adjustment) ``high`` / ``low``.
         signal_result: SignalResult from signal generation
-        
+        stop_loss: Optional per-bar stop series (NaN when flat)
+        take_profit: Optional per-bar take-profit series (NaN when flat)
+
     Returns:
-        pl.Series: Strategy returns
+        pl.Series: Bar-aligned strategy returns (position × forward return)
     """
-    if 'return' not in data.columns:
+    if "return" not in data.columns:
         data = data.with_columns(
-            pl.col('close').log().diff().shift(-1).alias('return')
+            pl.col("close").log().diff().shift(-1).alias("return")
         )
-    
-    # Convert PositionState enums to numeric values for return calculation
-    numeric_signals = signal_result.position_signals.cast(pl.Float64)
-    
-    return numeric_signals * data['return']
+
+    forward = np.asarray(data["return"].to_numpy(), dtype=np.float64)
+    # Last bar(s) have no next close → diff/shift leaves NaN; 0 * NaN would poison metrics.
+    forward = np.nan_to_num(forward, nan=0.0, posinf=0.0, neginf=0.0)
+    numeric_signals = np.asarray(
+        signal_result.position_signals.cast(pl.Float64).to_numpy(),
+        dtype=np.float64,
+    )
+
+    if (
+        stop_loss is not None
+        and take_profit is not None
+        and len(stop_loss) == len(data)
+        and len(take_profit) == len(data)
+        and all(c in data.columns for c in ("high", "low"))
+    ):
+        adjust_forward_returns_for_rr_exit_fills(
+            forward,
+            numeric_signals,
+            np.asarray(data["low"].to_numpy(), dtype=np.float64),
+            np.asarray(data["high"].to_numpy(), dtype=np.float64),
+            np.asarray(data["close"].to_numpy(), dtype=np.float64),
+            np.asarray(stop_loss.to_numpy(), dtype=np.float64),
+            np.asarray(take_profit.to_numpy(), dtype=np.float64),
+        )
+
+    return pl.Series(numeric_signals * forward)

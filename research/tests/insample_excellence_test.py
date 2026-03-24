@@ -142,8 +142,14 @@ class InSampleExcellenceTest:
             
             # Create full interactive analysis
             html_file = bokeh_creator.create_interactive_analysis(
-                data, signal_result, results, test_name, show_plot, 
-                self.plots_version_manager, custom_plots=custom_plots
+                data,
+                signal_result,
+                results,
+                test_name,
+                show_plot,
+                self.plots_version_manager,
+                custom_plots=custom_plots,
+                strategy=self.strategy,
             )
             
             if html_file is None:

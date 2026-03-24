@@ -929,6 +929,20 @@ wheels = [
 ]
 
 [[package]]
+name = "massive"
+version = "2.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "urllib3" },
+    { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f8/9e/f2c25c292e2211a34aefb2d18a0a0be6ca1b4be9997238948604b72cf70a/massive-2.4.0.tar.gz", hash = "sha256:f21051fe8b93a9670e20e15888319dd2d3288ced8e8da7e7bc68be3a3da14bd5", size = 47783, upload-time = "2026-03-05T15:59:37.468Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/77/eb/170eaa58181009af5e2cd4e58a09244a5aebf7fdcb29337c4ff98ba62476/massive-2.4.0-py3-none-any.whl", hash = "sha256:49a8c86f05cf53c4364193cc87f0104891732eebc8ffd828e73a4bff37a4e3f0", size = 65408, upload-time = "2026-03-05T15:59:38.301Z" },
+]
+
+[[package]]
 name = "matplotlib"
 version = "3.10.8"
 source = { registry = "https://pypi.org/simple" }
@@ -1762,6 +1776,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "bokeh" },
     { name = "jupyter" },
+    { name = "massive" },
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "polars" },
@@ -1776,6 +1791,7 @@ dependencies = [
 requires-dist = [
     { name = "bokeh", specifier = ">=3.8.0" },
     { name = "jupyter", specifier = ">=1.0.0" },
+    { name = "massive", specifier = ">=2.0.0" },
     { name = "matplotlib", specifier = ">=3.5.0" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "polars", specifier = ">=0.20.0" },

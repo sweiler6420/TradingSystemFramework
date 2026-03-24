@@ -12,6 +12,23 @@ import polars as pl
 
 from framework.features.base_feature import BaseFeature
 
+# Price inputs for row-wise indicators (matches typical OHLC bar columns).
+OHLC_PRICE_COLUMNS: frozenset[str] = frozenset({"open", "high", "low", "close"})
+
+
+def validate_ohlc_price_column(column: str) -> str:
+    """
+    Return normalized column name (lowercase). Raise if not one of open/high/low/close.
+
+    Used when ``EmaFeature`` smooths a price series from ``data`` (not ``input_series``).
+    """
+    c = column.strip().lower()
+    if c not in OHLC_PRICE_COLUMNS:
+        raise ValueError(
+            f"column must be one of {sorted(OHLC_PRICE_COLUMNS)}, got {column!r}"
+        )
+    return c
+
 
 class EmaFeature(BaseFeature):
     """
@@ -19,6 +36,9 @@ class EmaFeature(BaseFeature):
 
     Uses Polars ``ewm_mean(span=period, adjust=False)``, consistent with common
     charting platforms (span relates to smoothing length; alpha = 2 / (span + 1)).
+
+    When ``input_series`` is not set, ``column`` must be one of ``open``, ``high``,
+    ``low``, or ``close`` (default ``close``).
     """
 
     def __init__(
@@ -32,19 +52,23 @@ class EmaFeature(BaseFeature):
         Args:
             data: OHLCV DataFrame (required unless only used after set_data).
             period: EMA span (number of periods).
-            column: Column to smooth when ``input_series`` is None.
+            column: Which OHLC price to smooth when ``input_series`` is ``None``.
+                One of ``open``, ``high``, ``low``, ``close``; default ``close``.
             input_series: If set, EMA is applied to this series (row-aligned with ``data``),
                 e.g. MACD line for the signal EMA.
         """
         self.period = period
-        self.column = column
+        if input_series is None:
+            self.column = validate_ohlc_price_column(column)
+        else:
+            self.column = column.strip().lower() if isinstance(column, str) else column
         self.input_series = input_series
 
         super().__init__(
             name="EMA",
             data=data,
             period=period,
-            column=column,
+            column=self.column,
             uses_input_series=input_series is not None,
         )
 
@@ -74,7 +98,7 @@ class EmaFeature(BaseFeature):
             raise ValueError("No data available for EMA plotting")
 
         try:
-            from bokeh.models import Range1d
+            from bokeh.models import NumeralTickFormatter, Range1d
             from bokeh.plotting import figure
 
             ema_values = self.get_values()
@@ -101,6 +125,8 @@ class EmaFeature(BaseFeature):
             )
             p.legend.location = "top_left"
             p.legend.click_policy = "hide"
+
+            p.yaxis.formatter = NumeralTickFormatter(format="0,0.00")
 
             # Reasonable default y range from data
             ev = ema_values.drop_nulls()
