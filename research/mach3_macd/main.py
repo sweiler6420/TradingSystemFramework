@@ -16,17 +16,17 @@ from datetime import date, datetime
 from framework import DataHandler
 from framework.data_sources import SessionPolicy, YFinanceProvider, ensure_cached
 
-# Import the standardized test
+# Import the in-sample excellence suite
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from tests.insample_excellence_test import InSampleExcellenceTest
+from suites.insample_excellence import InSampleExcellenceSuite
 
 # Import project-specific strategy
 from strategies.mach3_macd_strategy import Mach3MacdStrategy
 
 
-def run_insample_excellence_test():
-    """Run in-sample excellence test (proof of concept)"""
-    print("=== MACH3_MACD RESEARCH - IN-SAMPLE EXCELLENCE TEST ===")
+def run_insample_excellence_suite():
+    """Run in-sample excellence suite (proof of concept)"""
+    print("=== MACH3_MACD RESEARCH - IN-SAMPLE EXCELLENCE SUITE ===")
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     project_root = os.path.dirname(__file__)
@@ -52,12 +52,17 @@ def run_insample_excellence_test():
 
     strategy = Mach3MacdStrategy(data)
 
-    test = InSampleExcellenceTest(os.path.dirname(__file__), strategy)
+    test = InSampleExcellenceSuite(os.path.dirname(__file__), strategy)
 
     test_metadata = test.run_test(data_handler, "insample_excellence")
 
     signal_result = strategy.generate_signals()
-    test.create_performance_plots(data, signal_result, test_metadata["performance_results"])
+    test.create_performance_plots(
+        data,
+        signal_result,
+        test_metadata["performance_results"],
+        test_metadata=test_metadata,
+    )
 
     test.generate_test_report(test_metadata)
 
@@ -74,7 +79,7 @@ def main():
     """Main research function"""
     print("Starting mach3_macd research...")
 
-    run_insample_excellence_test()
+    run_insample_excellence_suite()
 
     print("\nmach3_macd research completed!")
     print("Check the results/ and plots/ directories for outputs.")

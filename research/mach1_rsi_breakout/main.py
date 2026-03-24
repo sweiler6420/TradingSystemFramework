@@ -25,16 +25,16 @@ from framework.performance import (
 )
 from framework.significance_testing import MonteCarloSignificanceTest
 
-# Import the standardized test
+# Import the in-sample excellence suite
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from tests.insample_excellence_test import InSampleExcellenceTest
+from suites.insample_excellence import InSampleExcellenceSuite
 
 # Import project-specific strategy
 from strategies.mach1_rsi_breakout_strategy import Mach1RsiBreakoutStrategy
 
 
-def run_insample_excellence_test():
-    """Run in-sample excellence test (proof of concept)"""
+def run_insample_excellence_suite():
+    """Run in-sample excellence suite (proof of concept)"""
     print("=== MACH1_RSI_BREAKOUT RESEARCH - IN-SAMPLE EXCELLENCE TEST ===")
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
@@ -49,15 +49,20 @@ def run_insample_excellence_test():
     # Create strategy with data
     strategy = Mach1RsiBreakoutStrategy(data)
     
-    # Initialize the standardized test with strategy
-    test = InSampleExcellenceTest(os.path.dirname(__file__), strategy)
+    # Initialize the in-sample excellence suite with strategy
+    test = InSampleExcellenceSuite(os.path.dirname(__file__), strategy)
     
     # Run the test
     test_metadata = test.run_test(data_handler, "insample_excellence")
     
     # Create plots
     signal_result = strategy.generate_signals()
-    test.create_performance_plots(data, signal_result, test_metadata['performance_results'])
+    test.create_performance_plots(
+        data,
+        signal_result,
+        test_metadata["performance_results"],
+        test_metadata=test_metadata,
+    )
     
     # Generate report
     test.generate_test_report(test_metadata)
@@ -75,8 +80,8 @@ def main():
     """Main research function"""
     print("Starting mach1_rsi_breakout research...")
     
-    # Run in-sample excellence test
-    results = run_insample_excellence_test()
+    # Run in-sample excellence suite
+    results = run_insample_excellence_suite()
     
     print(f"\nmach1_rsi_breakout research completed!")
     print("Check the results/ and plots/ directories for outputs.")

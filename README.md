@@ -1,374 +1,140 @@
-# Trading Strategy Framework with Monte Carlo Permutation Testing
+# Trading System Framework
 
-A comprehensive Object-Oriented Programming (OOP) framework for developing, testing, and validating trading strategies with built-in Monte Carlo permutation testing capabilities.
+A Python framework for **feature-based strategies**, **Polars** OHLCV pipelines, **cached market data** (yfinance, Massive/Polygon, etc.), and **layered research validation** (in-sample runs first; out-of-sample and statistical tests as you grow the suite).
 
-## Overview
+For class-level architecture (features → strategies → backtest), see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
-This framework provides a modular, extensible architecture for trading strategy development with three core components:
-1. **Strategy Implementation** - Indicators, models, features, and signal generation
-2. **Data Handling** - Market data loading, preprocessing, and validation
-3. **Performance Analysis** - Comprehensive performance measures and Monte Carlo testing
+---
 
-The framework is designed with clean separation of concerns, making it easy to add new strategies, performance measures, and testing methodologies.
+## Quick start
 
-## Quick Start
-
-### Installation
-
-1. Clone this repository:
 ```bash
-git clone <your-repo-url>
-cd TradingSystemBacktests
+git clone https://github.com/sweiler6420/TradingSystemFramework.git
+cd TradingSystemFramework
 ```
 
-2. Create and activate a virtual environment:
+Install with **[uv](https://docs.astral.sh/uv/)** (uses **pyproject.toml** and **uv.lock** for reproducible deps):
+
 ```bash
-python -m venv venv
-
-# Windows
-venv\Scripts\activate
-# macOS/Linux
-source venv/bin/activate
+uv sync
 ```
 
-3. Install dependencies:
+That creates or updates `.venv` and installs the project in editable mode. Run tools without activating the venv:
+
 ```bash
-pip install -r requirements.txt
+uv run python research/mach4_ema_band_ep1/main.py
+# or: uv run python research/run_project.py 4
 ```
 
-### Running Examples
+Or activate the venv and use `python` as usual:
 
-Run the comprehensive example demonstrating the framework:
 ```bash
-python -m framework.examples.example_usage
+# Windows:
+.venv\Scripts\activate
+# macOS/Linux:
+source .venv/bin/activate
 ```
 
-This will execute:
-- RSI strategy with optimization and Monte Carlo testing
-- Donchian breakout strategy with statistical validation
-- Strategy comparison with performance metrics
+**Without uv:** `python -m venv .venv`, activate it, then `pip install -e .` (same dependencies, no lockfile guarantee).
 
-## Framework Architecture
+Dependencies include **Polars**, **Bokeh**, **yfinance**, **massive** (Polygon/Massive REST client), etc.
 
-### Directory Structure
+---
 
-```
-framework/
-├── __init__.py                 # Main framework exports
-├── strategies/                 # Strategy implementations
-│   ├── __init__.py
-│   ├── base_strategy.py       # BaseStrategy and Optimizer classes
-│   ├── rsi_strategy.py        # RSI-based strategy
-│   └── donchian_strategy.py   # Donchian breakout strategy
-├── performance/               # Performance analysis tools
-│   ├── __init__.py
-│   ├── measures.py           # BaseMeasure abstract class
-│   ├── returns_measure.py    # Returns calculation
-│   ├── profit_factor_measure.py
-│   ├── sharpe_ratio_measure.py
-│   ├── max_drawdown_measure.py
-│   ├── total_return_measure.py
-│   ├── win_rate_measure.py
-│   ├── total_trades_measure.py
-│   ├── monte_carlo_measures.py # Monte Carlo testing
-│   ├── calmar_ratio_measure.py # Advanced risk measures
-│   ├── sortino_ratio_measure.py
-│   ├── var_measure.py
-│   └── cvar_measure.py
-├── data_handling/            # Data management
-│   ├── __init__.py
-│   └── data_handler.py      # DataHandler class
-├── data_sources/            # Market data providers (yfinance) + Parquet cache
-│   ├── __init__.py
-│   ├── protocol.py
-│   ├── yfinance_provider.py
-│   ├── cache.py
-│   └── retry.py
-├── backtest/                # Backtesting functionality
-│   ├── __init__.py
-│   └── strategy_backtest.py # StrategyBacktest class
-├── examples/                # Usage examples
-│   └── example_usage.py    # Comprehensive framework demo
-└── data/                   # Sample data files
-    ├── BTCUSD1hour.pq
-    ├── BTCUSD1min.pq
-    └── btcusd_1-min_data.csv
+## Repository layout
+
+| Area | Role |
+|------|------|
+| `framework/` | Core library: `DataHandler`, features (`EmaFeature`, …), `SignalBasedStrategy`, `risk_reward`, performance **measures**, significance-testing primitives, `StrategyBacktest`, pluggable `data_sources` + Parquet cache |
+| `research/` | One folder per idea (e.g. `mach4_ema_band_ep1/`): `main.py`, `strategies/`, `data/`, `results/`, `plots/`, `tests/config.py` |
+| `research/suites/` | Shared **suites** (e.g. **`insample_excellence`**: metrics + Bokeh reports + versioned metadata) |
+
+See **[research/README.md](research/README.md)** for how research projects are structured and how to add one.
+
+---
+
+## Running a research example
+
+Example: **mach4** EMA band project loads EUR/USD 1h data via Massive, runs the in-sample excellence path, and writes plots/results under the project.
+
+```bash
+set MASSIVE_API_KEY=your_key   # Windows; use export on Unix
+python research/mach4_ema_band_ep1/main.py
 ```
 
-## Core Components
+Adjust symbols, dates, and providers inside that project’s `main.py` and `tests/config.py`.
 
-### 1. Strategy Module (`framework/strategies/`)
+---
 
-#### BaseStrategy Class
-Abstract base class for all trading strategies. Provides:
-- Signal generation interface
-- Performance calculation integration
-- Monte Carlo testing capabilities
-- Optimizer integration
+## Testing & validation (how the pieces fit)
 
-```python
-from framework.strategies import BaseStrategy
+### Why “in-sample excellence” is the default right now
 
-class MyStrategy(BaseStrategy):
-    def __init__(self):
-        super().__init__("My Custom Strategy")
-    
-    def generate_signals(self, **kwargs) -> pd.Series:
-        # Your signal generation logic
-        pass
-```
+- **End-to-end plumbing first**: You need a reliable path—data → signals → returns → **descriptive metrics** (Sharpe, drawdown, …) → plots and saved artifacts—before you trust more advanced steps.
+- **Avoid premature optimization**: Grid search and permutation tests on the same slice you tuned **inflates false discovery**. The codebase is staged so you can **prove the strategy runs and reports metrics** on a clean window, then add **OOS** and **significance** in a controlled order.
+- **Config placeholders**: Each research package’s `tests/config.py` already sketches **insample / permutation / walk-forward** toggles; **`InSampleExcellenceSuite`** is the one path fully wired today.
 
-#### Optimizer Class
-Abstract base class for strategy optimization:
-- Parameter optimization
-- Model training
-- Pattern selection
+---
 
-```python
-from framework.strategies import Optimizer
+### A well-rounded research pipeline (what you *could* or *should* run)
 
-class MyOptimizer(Optimizer):
-    def optimize(self, data, strategy, **kwargs):
-        # Your optimization logic
-        pass
-```
+Think in **layers** instead of one giant “test”:
 
-### 2. Performance Module (`framework/performance/`)
+1. **Descriptive backtest (in-sample)**  
+   One or more **fixed** windows on **historical** data. Report **performance measures** (Sharpe, Sortino, profit factor, max drawdown, …). Goal: **Does the implementation behave?** Any “excellence” threshold here is **engineering + sanity**, not proof of edge.
 
-#### BaseMeasure Class
-Abstract base class for all performance measures:
+2. **Parameter exploration (optional, still in-sample)**  
+   Many runs over **parameter grids** on the **same** in-sample period. Goal: **Sensitivity**. Treat this as **hypothesis generation**; it is **not** validation unless you hold out data and correct for multiple testing.
 
-```python
-from framework.performance import BaseMeasure
+3. **Inferential tests on in-sample** (e.g. **permutation / Monte Carlo** on **returns or trades**)  
+   Goal: **Is the observed metric plausibly better than random reorderings of the same data?** Answers **“is this luck on this slice?”** — not **“will it work next year?”**
 
-class CustomMeasure(BaseMeasure):
-    def __init__(self):
-        super().__init__("Custom Measure")
-    
-    def calculate(self, data, **kwargs):
-        # Your calculation logic
-        pass
-```
+4. **Out-of-sample (holdout or walk-forward)**  
+   Evaluate **frozen** rules on **dates the strategy never saw during tuning** (or walk train/test windows). Goal: **Generalization**. Report the **same measures**; interpretation is **stability**, not p-values.
 
-#### Available Performance Measures
+5. **Inferential tests on out-of-sample** (optional)  
+   Permutation on **OOS returns** can still be done; interpretation is **“is OOS performance distinguishable from noise on that short window?”** — often **noisy** if OOS is short. **Walk-forward** with many windows is usually more informative than one OOS permutation.
 
-**Basic Measures:**
-- `ReturnsMeasure` - Calculate strategy returns from signals
-- `ProfitFactorMeasure` - Winning trades / losing trades ratio
-- `SharpeRatioMeasure` - Risk-adjusted returns
-- `MaxDrawdownMeasure` - Maximum portfolio decline
-- `TotalReturnMeasure` - Total log return
-- `WinRateMeasure` - Percentage of winning trades
-- `TotalTradesMeasure` - Total number of trades
+6. **Monte Carlo as *simulation*** (not the same as permutation)  
+   Stress paths, position sizing, or model risk. Often a **separate** module from “one number Sharpe ratio.”
 
-**Advanced Risk Measures:**
-- `CalmarRatioMeasure` - Annual return / maximum drawdown
-- `SortinoRatioMeasure` - Excess return / downside deviation
-- `VaRMeasure` - Value at Risk at specified confidence level
-- `CVaRMeasure` - Conditional Value at Risk
+---
 
-**Monte Carlo Testing:**
-- `MonteCarloPermutationTest` - Statistical significance testing
-- Multiple permutation methods (bar permutation, simple, block)
+### Monte Carlo / permutation: in-sample, out-of-sample, or both?
 
-### 3. Data Handling Module (`framework/data_handling/`)
+| Question | Where it usually belongs |
+|----------|---------------------------|
+| “Is this metric **surprising** vs random **labels** on **this** history?” | **In-sample** (or each WF window’s test segment) **permutation** — **significance test**, not a “performance measure.” |
+| “Does the **rule** work **on new dates**?” | **Out-of-sample** or **walk-forward** — compare **measures** (Sharpe, DD, etc.) to a **benchmark** or **minimum** you care about. |
+| “Is **OOS** performance **lucky**?” | Permutation **on OOS returns** is possible but often **weak** if OOS is short; **many** OOS windows (WF) or **pre-registration** of rules matters more. |
 
-#### DataHandler Class
-Handles market data loading, preprocessing, and validation:
+**Do not** mix up: **Sharpe ratio** = descriptive statistic on **one** realized path. **Permutation p-value** = **inferential** statement about **that** path under a **null** (e.g. shuffle returns). They answer different questions.
 
-```python
-from framework.data_handling import DataHandler
+---
 
-# Create data handler
-data_handler = DataHandler('path/to/data.pq')
+### Performance measures vs significance tests vs “suites”
 
-# Load and process data
-data_handler.load_data()
-data_handler.filter_date_range(2020, 2021)
+To keep the system **open-ended**:
 
-# Add custom features
-data_handler.add_features('rsi', rsi_values)
-```
+| Layer | Examples | Role |
+|-------|-----------|------|
+| **Performance measures** | Sharpe, Sortino, max drawdown, profit factor | Map **one** backtest path → **numbers** (implement `BaseMeasure`). |
+| **Significance / robustness tests** | Monte Carlo permutation, bootstrap, deflated Sharpe, White’s reality check | Map **returns + optional labels** → **p-values, intervals, flags** (see `framework/significance_testing/`). |
+| **Evaluation suites** | “In-sample excellence”, “walk-forward report”, “parameter grid” | **Orchestration**: which dates, which measures, which tests, **output** paths — often driven by **research `tests/config.py`**. |
 
-**Features:**
-- Supports Parquet (.pq) and CSV files
-- Automatic timestamp handling
-- Column standardization
-- Date range filtering
-- Feature addition capabilities
-- Crypto market optimized (24/7 trading)
+Monte Carlo **permutation** belongs in the **second** row (or a dedicated `robustness/` package), **not** next to Sortino as if it were a third “ratio.” The **suite** can **list** both measures and tests in one JSON config, but the **code** should keep **measure** vs **test** types separate.
 
-#### Market data providers (`framework/data_sources/`)
+---
 
-Fetch OHLCV via a pluggable **provider**, cache Parquet under each research project’s `data/` folder, then pass the path to `DataHandler`. The default implementation uses **yfinance** with chunked requests, retries, and delays between chunks.
+### What is missing / next steps to wire this up
 
-```python
-from datetime import date
-from framework.data_sources import YFinanceProvider, ensure_cached
-from framework.data_handling import DataHandler
+- **`tests/config.py` is not fully authoritative yet**: `PERFORMANCE_MEASURES` and `TEST_CONFIG` flags are **not** all consumed by `InSampleExcellenceSuite` (measures are still **hardcoded** in the suite class). **Missing**: load measures from config, branch on `insample_permutation` / `walk_forward` / etc.
+- **Parameter grid “optimization”**: Not a first-class pipeline yet; you’d add a runner that loops strategies, tags runs, and **writes** separate result folders (and optionally **nested** CV / OOS).
+- **Walk-forward**: `TEST_CONFIG["walk_forward"]` is a placeholder until a runner exists that **splits** `DataHandler` by date and aggregates metrics.
+- **Naming**: Consider renaming or splitting `framework/performance/monte_carlo_measures.py` vs `significance_testing/` so “Monte Carlo” always reads as **statistical test** or **simulation**, not “another Sharpe.”
 
-cache_dir = "/path/to/research/my_strategy/data"
-path = ensure_cached(
-    YFinanceProvider(),
-    symbol="AAPL",
-    interval="1h",
-    start=date(2023, 1, 1),
-    end=date(2024, 1, 1),
-    cache_dir=cache_dir,
-)
-data_handler = DataHandler(str(path))
-data_handler.load_data()
-```
-
-### 4. Backtest Module (`framework/backtest/`)
-
-#### StrategyBacktest Class
-Main class for running complete strategy backtests:
-
-```python
-from framework.backtest import StrategyBacktest
-
-# Create backtest
-backtest = StrategyBacktest(strategy, data_handler, optimizer)
-
-# Run with optimization
-results = backtest.run(optimize_first=True)
-
-# Access results
-performance = results['performance']
-monte_carlo = results['monte_carlo']
-```
-
-## Usage Examples
-
-### Basic Strategy Implementation
-
-```python
-from framework import BaseStrategy, DataHandler, StrategyBacktest
-from framework.performance import SharpeRatioMeasure, MaxDrawdownMeasure
-
-# 1. Create strategy
-class MyStrategy(BaseStrategy):
-    def generate_signals(self, **kwargs):
-        # Your signal logic here
-        return signals
-
-# 2. Set up data
-data_handler = DataHandler('data/BTCUSD1hour.pq')
-data_handler.load_data()
-
-# 3. Create and run backtest
-strategy = MyStrategy()
-backtest = StrategyBacktest(strategy, data_handler)
-results = backtest.run()
-
-# 4. Analyze performance
-print(f"Sharpe Ratio: {results['performance']['sharpe_ratio']}")
-print(f"Max Drawdown: {results['performance']['max_drawdown']}")
-```
-
-### Custom Performance Measures
-
-```python
-from framework.performance import BaseMeasure
-import pandas as pd
-import numpy as np
-
-class VolatilityMeasure(BaseMeasure):
-    def __init__(self, periods_per_year=252):
-        super().__init__("Annualized Volatility")
-        self.periods_per_year = periods_per_year
-    
-    def calculate(self, returns, **kwargs):
-        return returns.std() * np.sqrt(self.periods_per_year)
-
-# Use custom measure
-vol_measure = VolatilityMeasure(252)
-volatility = vol_measure.calculate(returns)
-```
-
-### Strategy-Specific Performance Measures
-
-```python
-# Conservative strategy measures
-from framework.performance import SharpeRatioMeasure, MaxDrawdownMeasure, VaRMeasure
-
-conservative_measures = [
-    SharpeRatioMeasure(risk_free_rate=0.02),
-    MaxDrawdownMeasure(),
-    VaRMeasure(confidence_level=0.01)
-]
-
-# Aggressive strategy measures
-from framework.performance import CalmarRatioMeasure, SortinoRatioMeasure
-
-aggressive_measures = [
-    CalmarRatioMeasure(periods_per_year=252),
-    SortinoRatioMeasure(target_return=0.05)
-]
-```
-
-### Monte Carlo Testing
-
-```python
-from framework.performance import MonteCarloPermutationTest
-
-# Create Monte Carlo test
-mc_test = MonteCarloPermutationTest(
-    n_permutations=1000,
-    significance_level=0.05
-)
-
-# Run test
-results = mc_test.calculate(data, strategy_returns)
-
-print(f"P-value: {results['p_value']}")
-print(f"Significant: {results['is_significant']}")
-```
-
-## Framework Benefits
-
-* **Modular Design** - Easy to add new strategies and measures
-* **Consistent Performance Measurement** - All measures follow the same interface
-* **Built-in Monte Carlo Testing** - Statistical significance validation
-* **Optimizer Framework** - Parameter selection capabilities
-* **Crypto-focused Data Handling** - 24/7 market support
-* **OOP Structure** - Maintainable and extensible
-* **Clean Separation of Concerns** - Each module has a single responsibility
-* **Extensible Architecture** - Easy to add new components
-
-## Advanced Features
-
-### Custom Optimizers
-```python
-class GridSearchOptimizer(Optimizer):
-    def optimize(self, data, strategy, **kwargs):
-        # Grid search implementation
-        pass
-```
-
-### Multiple Data Sources
-```python
-# Handle multiple markets
-data_handlers = [
-    DataHandler('data/BTCUSD1hour.pq'),
-    DataHandler('data/ETHUSD1hour.pq')
-]
-```
-
-### Walk-Forward Analysis
-```python
-# Implement walk-forward testing
-for period in date_ranges:
-    train_data = data_handler.filter_date_range(period[0], period[1])
-    test_data = data_handler.filter_date_range(period[1], period[2])
-    # Run strategy on test data
-```
+---
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- MIT License
+MIT — see [LICENSE](LICENSE) if present.

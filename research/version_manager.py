@@ -17,27 +17,27 @@ class VersionManager:
         self.base_dir = base_dir
     
     def get_next_version(self, prefix: str = "V") -> str:
-        """Get the next version number for a given prefix"""
+        """Next run id (e.g. ``V0003``). Scans ``V0001``-style run folders and legacy ``*_V0001*`` names."""
         if not os.path.exists(self.base_dir):
             return f"{prefix}0001"
-        
-        # Find existing versions by looking for files that contain the version pattern
-        existing_versions = []
+
+        existing_versions: list[int] = []
         for item in os.listdir(self.base_dir):
-            # Look for pattern like "_V0001" in filenames
-            import re
-            pattern = rf"_{prefix}(\d{{4}})"
-            match = re.search(pattern, item)
-            if match:
-                version_num = int(match.group(1))
-                existing_versions.append(version_num)
-        
+            # Run directories named V0001, V0002, ... (suite-agnostic)
+            direct = re.match(rf"^{re.escape(prefix)}(\d{{4}})$", item)
+            if direct:
+                existing_versions.append(int(direct.group(1)))
+                continue
+            # Legacy flat files: insample_excellence_*_V0001_metadata.json, etc.
+            embedded = re.search(rf"_{re.escape(prefix)}(\d{{4}})", item)
+            if embedded:
+                existing_versions.append(int(embedded.group(1)))
+
         if not existing_versions:
             return f"{prefix}0001"
-        
-        # Get next version number
-        next_version = max(existing_versions) + 1
-        return f"{prefix}{next_version:04d}"
+
+        next_n = max(existing_versions) + 1
+        return f"{prefix}{next_n:04d}"
     
     def get_versioned_filename(self, base_name: str, extension: str = "", prefix: str = "V") -> str:
         """Get a versioned filename"""

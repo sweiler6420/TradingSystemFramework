@@ -3,28 +3,31 @@ Test configuration for mach4_ema_band_ep1
 =========================================
 """
 
-DATA_CONFIG = {
-    # Cache filename uses ``=`` → ``_`` in ``safe_symbol_label`` (see framework.data_sources.cache).
-    "data_file": "data/EURUSD_X_1h_*.parquet",
-    "start_year": 2024,
-    "end_year": 2026,
-    "insample_start": "2024-06-01",
-    "insample_end": "2024-12-31",
-    "outsample_start": "2025-01-01",
-    "outsample_end": "2025-12-31",
-}
+from __future__ import annotations
 
-STRATEGY_CONFIG = {
-    "long_only": True,
-    "initial_capital": 10000,
-    "commission": 0.001,
-    "slippage": 0.0005,
-}
-
+# ``insample_excellence`` is read by ``main.py`` when running the in-sample suite.
 TEST_CONFIG = {
     "insample_excellence": {
         "enabled": True,
         "description": "Proof of concept validation",
+        # Massive tickers (e.g. C:EURUSD forex). One suite run per symbol.
+        "symbols": [
+            "C:EURUSD",
+        ],
+        "interval": "1h",
+        # Inclusive calendar dates for the analysis window (after load).
+        "start": "2024-03-01",
+        "end": "2026-03-01",
+        # Optional: override Parquet cache path only (must match filename dates in data/).
+        # Defaults: same as start/end — second date in the name is ``cache_end``, not end+1 day.
+        # "cache_start": "2024-03-01",
+        # "cache_end": "2026-03-01",
+        # Provider for this project (Massive / Polygon).
+        "provider": "massive",
+        # ``framework.data_handling.market_session.SessionPolicy`` name for cache + bars.
+        "session_policy": "CRYPTO_UTC_24H",
+        # Strategy class for ``research.research_runner`` (module under this project : ClassName).
+        "strategy": "strategies.ema_band_ep1_strategy:EmaBandEp1Strategy",
     },
     "insample_permutation": {
         "enabled": False,

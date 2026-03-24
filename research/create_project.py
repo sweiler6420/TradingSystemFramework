@@ -6,6 +6,7 @@ Creates a new research project directory with standardized structure.
 """
 
 import os
+import re
 import sys
 from datetime import datetime
 import argparse
@@ -54,19 +55,18 @@ def create_research_project(project_name: str, description: str = "") -> str:
     # Create subdirectories
     subdirs = [
         "data",           # Raw data and processed datasets
-        "results",        # Test results, performance metrics
-        "plots",          # Interactive graphs and visualizations
+        "results",        # Versioned run folders (V0001/, …) with metrics, reports, HTML plots
         "notes",          # Research notes and observations
         "strategies",     # Strategy implementations specific to this research
         "tests",          # Test scripts and configurations
-        "archive"          # Archived results and old versions
+        "archive",        # Archived results and old versions
     ]
     
     for subdir in subdirs:
         os.makedirs(os.path.join(project_dir, subdir), exist_ok=True)
     
     # Create .gitkeep files for empty directories that should be tracked
-    gitkeep_dirs = ["data", "results", "plots", "notes", "archive"]
+    gitkeep_dirs = ["data", "results", "notes", "archive"]
     for gitkeep_dir in gitkeep_dirs:
         gitkeep_file = os.path.join(project_dir, gitkeep_dir, ".gitkeep")
         with open(gitkeep_file, 'w') as f:
@@ -84,8 +84,7 @@ def create_research_project(project_name: str, description: str = "") -> str:
         ## Project Structure
 
         - `data/` - Raw data and processed datasets
-        - `results/` - Test results, performance metrics, and statistics
-        - `plots/` - Interactive graphs and visualizations
+        - `results/` - Versioned run directories (`V0001/`, …) with CSV/JSON, markdown reports, and interactive HTML plots
         - `notes/` - Research notes, observations, and findings
         - `strategies/` - Strategy implementations specific to this research
         - `tests/` - Test scripts and configurations
@@ -124,96 +123,57 @@ def create_research_project(project_name: str, description: str = "") -> str:
     
     with open(os.path.join(project_dir, "README.md"), "w") as f:
         f.write(readme_content)
-    
-    # Create main research script template
-    main_script_content = textwrap.dedent(f"""
-        \"\"\"
-        {project_name.title()} Research Script
-        ====================================
 
-        Main research script for {project_name}.
-        \"\"\"
+    # Thin entry: matches research/mach4_ema_band_ep1/main.py (orchestration in research_runner + tests/config)
+    _title_line = f"{project_name.replace('_', ' ').title()} — research entry (optional)"
+    _title_under = "=" * len(_title_line)
+    _mach_m = re.match(r"^mach(\d+)_", clean_name)
+    if _mach_m:
+        _n = _mach_m.group(1)
+        _preferred = (
+            f"Preferred: from repo root run ``python research/run_project.py {clean_name}``\n"
+            f"(or ``{_n}`` / ``mach{_n}`` if unambiguous). That uses :mod:`research.research_runner` and\n"
+            f"``tests/config.py`` — same behavior as this file."
+        )
+    else:
+        _preferred = (
+            f"Preferred: from repo root run ``python research/run_project.py {clean_name}``.\n"
+            f"That uses :mod:`research.research_runner` and\n"
+            f"``tests/config.py`` — same behavior as this file."
+        )
 
-        import sys
+    main_script_content = textwrap.dedent(f'''
+        """
+        {_title_line}
+        {_title_under}
+
+        {_preferred}
+
+        Set ``MASSIVE_API_KEY`` for live fetches when the Parquet cache is missing.
+        """
+
+        from __future__ import annotations
+
         import os
-        sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
-
-        import polars as pl
-        import numpy as np
-        import matplotlib.pyplot as plt
-        from datetime import datetime
-
-        # Framework imports
-        from framework import (
-            DataHandler, SignalBasedStrategy,
-            RSIFeature, DonchianFeature, PositionState, SignalChange
-        )
-        from framework.performance import (
-            ProfitFactorMeasure, SharpeRatioMeasure, SortinoRatioMeasure,
-            MaxDrawdownMeasure, TotalReturnMeasure, WinRateMeasure
-        )
-        from framework.significance_testing import MonteCarloSignificanceTest
-
-        # Import the standardized test
-        sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-        from tests.insample_excellence_test import InSampleExcellenceTest
-
-        # Import project-specific strategy
-        from strategies.{clean_name}_strategy import {clean_name.title().replace("_", "")}Strategy
+        import sys
 
 
-        def run_insample_excellence_test():
-            \"\"\"Run in-sample excellence test (proof of concept)\"\"\"
-            print("=== {project_name.upper()} RESEARCH - IN-SAMPLE EXCELLENCE TEST ===")
-            print(f"Started: {{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}}")
-            
-            # Load data
-            data_handler = DataHandler('framework/data/BTCUSD1hour.pq')
-            data_handler.load_data()
-            data_handler.filter_date_range(2023, 2024)
-            data = data_handler.get_data()
-            
-            print(f"Data loaded: {{data.height}} rows from {{data['timestamp'][0]}} to {{data['timestamp'][-1]}}")
-            
-            # Create strategy
-            strategy = {clean_name.title().replace("_", "")}Strategy()
-            
-            # Initialize the standardized test with strategy
-            test = InSampleExcellenceTest(os.path.dirname(__file__), strategy)
-            
-            # Run the test
-            test_metadata = test.run_test(data_handler, "insample_excellence")
-            
-            # Create plots
-            signal_result = strategy.generate_signals()
-            test.create_performance_plots(data, signal_result, test_metadata['performance_results'])
-            
-            # Generate report
-            test.generate_test_report(test_metadata)
-            
-            print(f"\\n=== {project_name.upper()} RESEARCH COMPLETED ===")
-            print("Check the following directories for results:")
-            print("- results/ - Performance metrics and metadata")
-            print("- plots/ - Visualization charts")
-            print("- README.md - Project documentation")
-            
-            return test_metadata
+        def main() -> None:
+            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+            project_dir = os.path.dirname(os.path.abspath(__file__))
+            if repo_root not in sys.path:
+                sys.path.insert(0, repo_root)
+            if sys.path[0] != project_dir:
+                sys.path.insert(0, project_dir)
 
+            from research.research_runner import run_cli
 
-        def main():
-            \"\"\"Main research function\"\"\"
-            print("Starting {project_name} research...")
-            
-            # Run in-sample excellence test
-            results = run_insample_excellence_test()
-            
-            print(f"\\n{project_name} research completed!")
-            print("Check the results/ and plots/ directories for outputs.")
+            run_cli(project_dir, repo_root=repo_root)
 
 
         if __name__ == "__main__":
             main()
-    """).strip()
+    ''').strip()
     
     with open(os.path.join(project_dir, "main.py"), "w") as f:
         f.write(main_script_content)
@@ -235,10 +195,10 @@ def create_research_project(project_name: str, description: str = "") -> str:
         class {clean_name.title().replace("_", "")}Strategy(SignalBasedStrategy):
             \"\"\"Strategy implementation for {project_name} research\"\"\"
             
-            def __init__(self, **kwargs):
+            def __init__(self, data: pl.DataFrame, **kwargs):
                 super().__init__("{project_name.title()}")
+                self._data = data
                 # Initialize your strategy parameters here
-                pass
             
             def generate_raw_signals(self, data: pl.DataFrame, **kwargs) -> pl.Series:
                 \"\"\"Generate raw trading signals\"\"\"
@@ -249,6 +209,11 @@ def create_research_project(project_name: str, description: str = "") -> str:
     
     with open(os.path.join(project_dir, "strategies", f"{clean_name}_strategy.py"), "w") as f:
         f.write(strategy_content)
+
+    tests_init = os.path.join(project_dir, "tests", "__init__.py")
+    if not os.path.isfile(tests_init):
+        with open(tests_init, "w") as f:
+            f.write('"""Test configuration for this research project."""\n')
     
     # Create test configuration file
     test_config_content = textwrap.dedent(f"""
@@ -278,11 +243,18 @@ def create_research_project(project_name: str, description: str = "") -> str:
             'slippage': 0.0005    # 0.05% slippage
         }}
 
-        # Test Configuration
+        # Test Configuration (see research/research_runner.py)
         TEST_CONFIG = {{
             'insample_excellence': {{
                 'enabled': True,
-                'description': 'Proof of concept validation'
+                'description': 'Proof of concept validation',
+                'symbols': ['C:EURUSD'],
+                'interval': '1h',
+                'start': '2024-01-01',
+                'end': '2024-06-30',
+                'provider': 'massive',
+                'session_policy': 'CRYPTO_UTC_24H',
+                'strategy': 'strategies.{clean_name}_strategy:{clean_name.title().replace("_", "")}Strategy',
             }},
             'insample_permutation': {{
                 'enabled': False,
@@ -321,9 +293,9 @@ def create_research_project(project_name: str, description: str = "") -> str:
     print(f"Main script: {project_dir}/main.py")
     print(f"README: {project_dir}/README.md")
     print(f"Config: {project_dir}/tests/config.py")
-    print(f"\nTo start research, run:")
-    print(f"   cd {project_dir}")
-    print(f"   python main.py")
+    print(f"\nTo start research (from repo root), run:")
+    print(f"   python research/run_project.py {clean_name}")
+    print(f"   # or: cd {project_dir} && python main.py")
     
     return project_dir
 
@@ -334,23 +306,44 @@ def main():
         description='Create a new research project with automatic mach numbering',
         epilog=textwrap.dedent('''
             Examples:
-              python research/create_project.py "rsi_mean_reversion"
-              python research/create_project.py "donchian_breakout" -d "Testing Donchian breakout strategy"
-              python research/create_project.py "bollinger_bands" -d "Bollinger Bands mean reversion test"
+              python research/create_project.py rsi_mean_reversion
+              python research/create_project.py --title rsi_mean_reversion
+              python research/create_project.py -t donchian_breakout -d "Testing Donchian breakout strategy"
+              python research/create_project.py bollinger_bands -d "Bollinger Bands mean reversion test"
 
             The project name will be automatically prefixed with the next available mach number:
-              "rsi_test" -> "mach6_rsi_test"
-              "moving_average" -> "mach7_moving_average"
+              rsi_test -> mach6_rsi_test
+              moving_average -> mach7_moving_average
         ''').strip(),
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument('title', help='Project title (required) - will be appended to auto-generated mach number')
+    parser.add_argument(
+        'title',
+        nargs='?',
+        default=None,
+        metavar='TITLE',
+        help='Project title — appended to the next machN_ prefix (same as -t/--title)',
+    )
+    parser.add_argument(
+        '-t',
+        '--title',
+        dest='title_flag',
+        metavar='TITLE',
+        default=None,
+        help='Project title (alternative to the positional TITLE)',
+    )
     parser.add_argument('-d', '--description', default='', help='Optional description of the research project')
-    
+
     args = parser.parse_args()
-    
+
+    title = args.title if args.title is not None else args.title_flag
+    if args.title is not None and args.title_flag is not None and args.title != args.title_flag:
+        parser.error('positional TITLE and -t/--title disagree; pass only one title')
+    if not title:
+        parser.error('a project title is required (positional TITLE or -t/--title)')
+
     try:
-        create_research_project(args.title, args.description)
+        create_research_project(title, args.description)
     except ValueError as e:
         print(f"Error: {e}")
         parser.print_help()

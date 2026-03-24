@@ -545,6 +545,8 @@ class BokehInteractivePlotCreator:
         version_manager=None,
         custom_plots=None,
         strategy=None,
+        *,
+        html_filename: str | None = None,
     ) -> Optional[str]:
         """Create interactive analysis using Bokeh.
 
@@ -568,12 +570,15 @@ class BokehInteractivePlotCreator:
                     pl.col('row_index').cast(pl.Datetime).alias('timestamp')
                 )
             
-            # Create output file with versioning
+            # Versioned HTML lives next to other artifacts when ``version_manager`` is set.
+            # Per-run folder: pass ``html_filename`` (e.g. ``{test_name}_interactive.html``).
             if version_manager:
                 versioned_name = version_manager.get_versioned_filename(test_name, "html", "V")
-                html_file = f"{self.plots_dir}/{versioned_name}"
+                html_file = os.path.join(self.plots_dir, versioned_name)
+            elif html_filename:
+                html_file = os.path.join(self.plots_dir, html_filename)
             else:
-                html_file = f"{self.plots_dir}/{test_name}_bokeh_interactive.html"
+                html_file = os.path.join(self.plots_dir, "interactive.html")
             
             # Theme applies to figures when serializing (dark axes, grid, outer area)
             curdoc().theme = REPORT_BOKEH_THEME

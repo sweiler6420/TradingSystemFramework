@@ -9,12 +9,12 @@ Each research project follows a standardized structure:
 ```
 research/
 ├── create_project.py          # Entry script to create new projects
+├── suites/                    # Shared evaluation suites (insample_excellence, …)
 ├── mach_1/                   # Example project directory
 │   ├── README.md            # Project documentation
 │   ├── main.py              # Main research script
 │   ├── data/                # Raw and processed data
-│   ├── results/             # Test results and metrics
-│   ├── plots/               # Interactive graphs
+│   ├── results/             # Versioned runs (V0001/, …): metrics, reports, HTML plots
 │   ├── notes/               # Research notes
 │   ├── strategies/          # Project-specific strategies
 │   ├── tests/               # Test scripts and configs
@@ -42,29 +42,18 @@ This will create:
 - ✅ tests/config.py with test configuration
 - ✅ All necessary subdirectories
 
-## Research Test Framework
+## Research test framework
 
-Each project includes 4 standardized tests:
+Each project’s `tests/config.py` describes **which** validation stages to run (in-sample excellence, permutation, walk-forward, etc.) and **which performance measures** to report.
 
-### 1. In-Sample Excellence Test
-- **Purpose:** Proof of concept validation
-- **Description:** Test strategy performance on historical data
-- **Always implemented first**
+**Currently:** the shared **`InSampleExcellenceSuite`** (`research/suites/insample_excellence/`) is the main wired path—descriptive metrics + Bokeh plots + versioned metadata. Other toggles in `TEST_CONFIG` are **staged for future runners**; see the root **[README.md](../README.md)** section *Testing & validation* for how measures, significance tests, and suites should stay separate.
 
-### 2. In-Sample Permutation Test  
-- **Purpose:** Statistical significance validation
-- **Description:** Monte Carlo permutation test to validate results
-- **Validates that results aren't due to random chance**
+### Intended stages (roadmap)
 
-### 3. Walk Forward Test
-- **Purpose:** Out-of-sample validation
-- **Description:** Rolling window validation
-- **Tests robustness across different time periods**
-
-### 4. Walk Forward Permutation Test
-- **Purpose:** Out-of-sample statistical validation
-- **Description:** Monte Carlo permutation test on walk-forward results
-- **Final validation of statistical significance**
+1. **In-sample excellence** — Proof-of-concept: strategy runs, measures computed, plots saved (*implemented*).
+2. **In-sample permutation** — Inferential check on the same window (Monte Carlo / shuffle null); **not** a replacement for OOS.
+3. **Walk-forward** — Rolling train/test or fixed holdout for **generalization**.
+4. **Walk-forward + permutation** — Optional significance on **test** segments per window (interpret carefully).
 
 ## Benefits
 
@@ -80,5 +69,13 @@ Each project includes 4 standardized tests:
 1. Create a new project: `python research/create_project.py "your_idea"`
 2. Navigate to the project: `cd research/your_idea`
 3. Edit `main.py` to implement your strategy
-4. Run the research: `python main.py`
+4. Run the research: `python main.py` **or** from the repo root use the launcher (by mach number or full folder name):
+
+```bash
+uv run python research/run_project.py 4
+uv run python research/run_project.py mach4_ema_band_ep1
+```
+
+If two folders exist (`mach4_foo` and `mach4_bar`), the numeric form is ambiguous — pass the full directory name.
+
 5. Document findings in `notes/` and `README.md`
