@@ -22,7 +22,7 @@ Example::
 """
 
 from framework.data_handling.market_session import SessionPolicy
-from framework.data_sources.cache import cache_parquet_path, ensure_cached
+from framework.data_sources.cache import cache_parquet_path, ensure_cached, safe_provider_label
 from framework.data_sources.errors import MassiveDataError, YFinanceDataError
 from framework.data_sources.protocol import MarketDataProvider
 from framework.data_sources.retry import retry_with_backoff
@@ -42,5 +42,6 @@ __all__ = [
     "YFinanceProvider",
     "ensure_cached",
     "cache_parquet_path",
+    "safe_provider_label",
     "retry_with_backoff",
 ]

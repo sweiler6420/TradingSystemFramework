@@ -58,14 +58,20 @@ class InSampleExcellenceSuite:
         self.version_manager = VersionManager(self.results_dir)
 
     def run_test(
-        self, data_handler: DataHandler, test_name: str = "insample_excellence"
+        self,
+        data_handler: DataHandler,
+        test_name: str = "insample_excellence",
+        *,
+        run_version_id: str | None = None,
     ) -> Dict[str, Any]:
         """
         Run the in-sample excellence suite.
 
         Args:
             data_handler: Data handler with loaded data
-            test_name: Name for saving results
+            test_name: Name for saving results (artifact prefix under the run folder)
+            run_version_id: If set (e.g. ``V0003``), write into ``results/run_version_id/``
+                without allocating a new id — use one id for a batch (multiple symbols / suites).
 
         Returns:
             Dictionary with test results and metadata
@@ -109,8 +115,8 @@ class InSampleExcellenceSuite:
             "performance_results": results,
         }
 
-        # One version id per run; folder name is only V#### (other suites can share the same run later).
-        run_version_id = self.version_manager.get_next_version("V")
+        if run_version_id is None:
+            run_version_id = self.version_manager.get_next_version("V")
         test_metadata["run_version"] = run_version_id
         self._run_dir = os.path.join(self.results_dir, run_version_id)
         os.makedirs(self._run_dir, exist_ok=True)

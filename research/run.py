@@ -11,7 +11,7 @@ From the repository root::
 Resolves ``research/mach{N}_*`` when you pass a numeric id or ``mach{N}``. If more
 than one folder matches, pass the **full** project directory name.
 
-Loads ``tests/config.py`` and runs enabled suites (e.g. in-sample excellence) via
+Loads ``configs/config.py`` and runs enabled suites (e.g. in-sample excellence) via
 :mod:`research.research_runner`. Project ``main.py`` is optional; you can keep it as a
 thin wrapper or for legacy use.
 """
@@ -78,7 +78,7 @@ def resolve_project_dir(research_dir: str, target: str) -> str:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        description="Run a research project using tests/config.py (enabled suites)."
+        description="Run a research project using configs/config.py (enabled suites)."
     )
     parser.add_argument(
         "target",

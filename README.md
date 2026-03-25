@@ -46,7 +46,7 @@ Dependencies include **Polars**, **Bokeh**, **yfinance**, **massive** (Polygon/M
 | Area | Role |
 |------|------|
 | `framework/` | Core library: `DataHandler`, features (`EmaFeature`, …), `SignalBasedStrategy`, `risk_reward`, performance **measures**, significance-testing primitives, `StrategyBacktest`, pluggable `data_sources` + Parquet cache |
-| `research/` | One folder per idea (e.g. `mach4_ema_band_ep1/`): `main.py`, `strategies/`, `data/`, `results/`, `plots/`, `tests/config.py` |
+| `research/` | One folder per idea (e.g. `mach4_ema_band_ep1/`): `main.py`, `strategies/`, `data/`, `results/`, `plots/`, `configs/config.py` |
 | `research/suites/` | Shared **suites** (e.g. **`insample_excellence`**: metrics + Bokeh reports + versioned metadata) |
 
 See **[research/README.md](research/README.md)** for how research projects are structured and how to add one.
@@ -62,7 +62,7 @@ set MASSIVE_API_KEY=your_key   # Windows; use export on Unix
 python research/mach4_ema_band_ep1/main.py
 ```
 
-Adjust symbols, dates, and providers inside that project’s `main.py` and `tests/config.py`.
+Adjust symbols, dates, and providers inside that project’s `main.py` and `configs/config.py`.
 
 ---
 
@@ -72,7 +72,7 @@ Adjust symbols, dates, and providers inside that project’s `main.py` and `test
 
 - **End-to-end plumbing first**: You need a reliable path—data → signals → returns → **descriptive metrics** (Sharpe, drawdown, …) → plots and saved artifacts—before you trust more advanced steps.
 - **Avoid premature optimization**: Grid search and permutation tests on the same slice you tuned **inflates false discovery**. The codebase is staged so you can **prove the strategy runs and reports metrics** on a clean window, then add **OOS** and **significance** in a controlled order.
-- **Config placeholders**: Each research package’s `tests/config.py` already sketches **insample / permutation / walk-forward** toggles; **`InSampleExcellenceSuite`** is the one path fully wired today.
+- **Config placeholders**: Each research package’s `configs/config.py` already sketches **insample / permutation / walk-forward** toggles; **`InSampleExcellenceSuite`** is the one path fully wired today.
 
 ---
 
@@ -120,7 +120,7 @@ To keep the system **open-ended**:
 |-------|-----------|------|
 | **Performance measures** | Sharpe, Sortino, max drawdown, profit factor | Map **one** backtest path → **numbers** (implement `BaseMeasure`). |
 | **Significance / robustness tests** | Monte Carlo permutation, bootstrap, deflated Sharpe, White’s reality check | Map **returns + optional labels** → **p-values, intervals, flags** (see `framework/significance_testing/`). |
-| **Evaluation suites** | “In-sample excellence”, “walk-forward report”, “parameter grid” | **Orchestration**: which dates, which measures, which tests, **output** paths — often driven by **research `tests/config.py`**. |
+| **Evaluation suites** | “In-sample excellence”, “walk-forward report”, “parameter grid” | **Orchestration**: which dates, which measures, which tests, **output** paths — often driven by **research `configs/config.py`**. |
 
 Monte Carlo **permutation** belongs in the **second** row (or a dedicated `robustness/` package), **not** next to Sortino as if it were a third “ratio.” The **suite** can **list** both measures and tests in one JSON config, but the **code** should keep **measure** vs **test** types separate.
 
@@ -128,7 +128,7 @@ Monte Carlo **permutation** belongs in the **second** row (or a dedicated `robus
 
 ### What is missing / next steps to wire this up
 
-- **`tests/config.py` is not fully authoritative yet**: `PERFORMANCE_MEASURES` and `TEST_CONFIG` flags are **not** all consumed by `InSampleExcellenceSuite` (measures are still **hardcoded** in the suite class). **Missing**: load measures from config, branch on `insample_permutation` / `walk_forward` / etc.
+- **`configs/config.py` is not fully authoritative yet**: `PERFORMANCE_MEASURES` and `TEST_CONFIG` flags are **not** all consumed by `InSampleExcellenceSuite` (measures are still **hardcoded** in the suite class). **Missing**: load measures from config, branch on `insample_permutation` / `walk_forward` / etc.
 - **Parameter grid “optimization”**: Not a first-class pipeline yet; you’d add a runner that loops strategies, tags runs, and **writes** separate result folders (and optionally **nested** CV / OOS).
 - **Walk-forward**: `TEST_CONFIG["walk_forward"]` is a placeholder until a runner exists that **splits** `DataHandler` by date and aggregates metrics.
 - **Naming**: Consider renaming or splitting `framework/performance/monte_carlo_measures.py` vs `significance_testing/` so “Monte Carlo” always reads as **statistical test** or **simulation**, not “another Sharpe.”

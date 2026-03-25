@@ -58,7 +58,7 @@ def create_research_project(project_name: str, description: str = "") -> str:
         "results",        # Versioned run folders (V0001/, …) with metrics, reports, HTML plots
         "notes",          # Research notes and observations
         "strategies",     # Strategy implementations specific to this research
-        "tests",          # Test scripts and configurations
+        "configs",        # Suite / run configuration (TEST_CONFIG, etc.)
         "archive",        # Archived results and old versions
     ]
     
@@ -87,7 +87,7 @@ def create_research_project(project_name: str, description: str = "") -> str:
         - `results/` - Versioned run directories (`V0001/`, …) with CSV/JSON, markdown reports, and interactive HTML plots
         - `notes/` - Research notes, observations, and findings
         - `strategies/` - Strategy implementations specific to this research
-        - `tests/` - Test scripts and configurations
+        - `configs/` - Suite and validation run configuration (`config.py`)
         - `archive/` - Archived results and old versions
 
         ## Research Tests
@@ -124,7 +124,7 @@ def create_research_project(project_name: str, description: str = "") -> str:
     with open(os.path.join(project_dir, "README.md"), "w") as f:
         f.write(readme_content)
 
-    # Thin entry: matches research/mach4_ema_band_ep1/main.py (orchestration in research_runner + tests/config)
+    # Thin entry: matches research/mach4_ema_band_ep1/main.py (orchestration in research_runner + configs/config)
     _title_line = f"{project_name.replace('_', ' ').title()} — research entry (optional)"
     _title_under = "=" * len(_title_line)
     _mach_m = re.match(r"^mach(\d+)_", clean_name)
@@ -133,13 +133,13 @@ def create_research_project(project_name: str, description: str = "") -> str:
         _preferred = (
             f"Preferred: from repo root run ``python research/run.py {clean_name}``\n"
             f"(or ``{_n}`` / ``mach{_n}`` if unambiguous). That uses :mod:`research.research_runner` and\n"
-            f"``tests/config.py`` — same behavior as this file."
+            f"``configs/config.py`` — same behavior as this file."
         )
     else:
         _preferred = (
             f"Preferred: from repo root run ``python research/run.py {clean_name}``.\n"
             f"That uses :mod:`research.research_runner` and\n"
-            f"``tests/config.py`` — same behavior as this file."
+            f"``configs/config.py`` — same behavior as this file."
         )
 
     main_script_content = textwrap.dedent(f'''
@@ -210,18 +210,18 @@ def create_research_project(project_name: str, description: str = "") -> str:
     with open(os.path.join(project_dir, "strategies", f"{clean_name}_strategy.py"), "w") as f:
         f.write(strategy_content)
 
-    tests_init = os.path.join(project_dir, "tests", "__init__.py")
-    if not os.path.isfile(tests_init):
-        with open(tests_init, "w") as f:
-            f.write('"""Test configuration for this research project."""\n')
+    configs_init = os.path.join(project_dir, "configs", "__init__.py")
+    if not os.path.isfile(configs_init):
+        with open(configs_init, "w") as f:
+            f.write('"""Suite and validation configuration for this research project."""\n')
     
-    # Create test configuration file
+    # Create suite / validation configuration (configs/config.py)
     test_config_content = textwrap.dedent(f"""
         \"\"\"
-        Test Configuration for {project_name}
+        Suite configuration for {project_name}
         ===================================
 
-        Configuration settings for all research tests.
+        Drives validation stages (in-sample excellence, permutation, walk-forward, …).
         \"\"\"
 
         # Data Configuration
@@ -285,14 +285,14 @@ def create_research_project(project_name: str, description: str = "") -> str:
         ]
     """).strip()
     
-    with open(os.path.join(project_dir, "tests", "config.py"), "w") as f:
+    with open(os.path.join(project_dir, "configs", "config.py"), "w") as f:
         f.write(test_config_content)
     
     print(f"Research project '{project_name}' created successfully!")
     print(f"Project directory: {project_dir}")
     print(f"Main script: {project_dir}/main.py")
     print(f"README: {project_dir}/README.md")
-    print(f"Config: {project_dir}/tests/config.py")
+    print(f"Config: {project_dir}/configs/config.py")
     print(f"\nTo start research (from repo root), run:")
     print(f"   python research/run.py {clean_name}")
     print(f"   # or: cd {project_dir} && python main.py")

@@ -1,5 +1,5 @@
 """
-Shared research orchestration driven by each project's ``tests/config.py``.
+Shared research orchestration driven by each project's ``configs/config.py``.
 
 ``run.py`` calls :func:`run_project_from_config` so logic is not duplicated in
 per-project ``main.py`` files.
@@ -11,7 +11,9 @@ import importlib
 import os
 import sys
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
+import webbrowser
 
 import polars as pl
 
@@ -71,7 +73,11 @@ def _make_market_data_provider(provider_name: str, session):
         from framework.data_sources import MassiveProvider
 
         return MassiveProvider(session_policy=session)
-    raise ValueError(f"Unsupported provider {provider_name!r} (supported: massive)")
+    elif p == "yfinance":
+        from framework.data_sources import YFinanceProvider
+
+        return YFinanceProvider(session_policy=session)
+    raise ValueError(f"Unsupported provider {provider_name!r} (supported: massive, yfinance)")
 
 
 def run_insample_excellence(
@@ -81,21 +87,25 @@ def run_insample_excellence(
     strategy_spec: str,
 ) -> list[dict[str, Any]]:
     """
-    In-sample excellence suite: one run per symbol, driven by ``cfg`` (``TEST_CONFIG['insample_excellence']``).
+    In-sample excellence suite: one pass per symbol, driven by ``cfg`` (``TEST_CONFIG['insample_excellence']``).
+
+    All symbols share a **single** ``results/V####/`` folder for this invocation; artifacts are
+    distinguished by ``test_name`` (e.g. ``insample_excellence_C_EURUSD_*``).
     """
     from framework import DataHandler
     from framework.data_sources import ensure_cached
     from framework.data_sources.cache import safe_symbol_label
 
+    from research.version_manager import VersionManager
     from suites.insample_excellence import InSampleExcellenceSuite
 
     if not cfg.get("enabled", False):
-        print("insample_excellence is disabled in tests/config.py — nothing to run.")
+        print("insample_excellence is disabled in configs/config.py — nothing to run.")
         return []
 
     symbols: list[str] = list(cfg.get("symbols") or [])
     if not symbols:
-        print("insample_excellence.symbols is empty in tests/config.py — nothing to run.")
+        print("insample_excellence.symbols is empty in configs/config.py — nothing to run.")
         return []
 
     interval = str(cfg.get("interval") or "1h")
@@ -120,7 +130,14 @@ def run_insample_excellence(
     print(f"In-sample window (inclusive): {start_d} .. {end_inclusive}")
     print(f"Session policy: {session.value}")
 
+    results_dir = os.path.join(project_root, "results")
+    batch_run_version = VersionManager(results_dir).get_next_version("V")
+    print(f"Run folder (all symbols): {results_dir}/{batch_run_version}")
+
     all_metadata: list[dict[str, Any]] = []
+    return_frames: list[pl.DataFrame] = []
+    equity_frames: list[pl.DataFrame] = []
+    slug_labels: dict[str, str] = {}
 
     for symbol in symbols:
         print(f"\n--- Symbol: {symbol} ---")
@@ -132,6 +149,7 @@ def run_insample_excellence(
             end=cache_end,
             cache_dir=cache_dir,
             session_policy=session,
+            provider_key=provider_name,
         )
         print(f"Parquet: {data_path}")
         data_handler = DataHandler(str(data_path), session_policy=session)
@@ -154,7 +172,9 @@ def run_insample_excellence(
         test_name = f"insample_excellence_{slug}"
 
         suite = InSampleExcellenceSuite(project_root, strategy)
-        test_metadata = suite.run_test(data_handler, test_name)
+        test_metadata = suite.run_test(
+            data_handler, test_name, run_version_id=batch_run_version
+        )
 
         signal_result = strategy.generate_signals()
         suite.create_performance_plots(
@@ -164,14 +184,88 @@ def run_insample_excellence(
             test_name=test_name,
             test_metadata=test_metadata,
         )
-        suite.generate_test_report(test_metadata, test_name=test_name)
-
         test_metadata["symbol"] = symbol
-        test_metadata["test_name"] = test_name
+        suite.generate_test_report(test_metadata, test_name=test_name)
+        ret = strategy._calculate_strategy_returns(data, signal_result)
+        return_frames.append(
+            pl.DataFrame({"timestamp": data["timestamp"], f"ret_{slug}": ret})
+        )
+        slug_labels[slug] = symbol
+        dd_for_bh = data
+        if "return" not in dd_for_bh.columns:
+            dd_for_bh = dd_for_bh.with_columns(
+                pl.col("close").log().diff().shift(-1).alias("return")
+            )
+        r_bh = dd_for_bh["return"]
+        equity_frames.append(
+            pl.DataFrame(
+                {
+                    "timestamp": data["timestamp"],
+                    f"strat_{slug}": ret,
+                    f"bh_{slug}": r_bh,
+                }
+            )
+        )
         all_metadata.append(test_metadata)
 
+    batch_dir = os.path.join(results_dir, batch_run_version)
+
+    equity_figure = None
+    if equity_frames:
+        from suites.insample_excellence.batch_equity_plot import (
+            build_batch_equity_figure,
+            join_equity_frames,
+        )
+
+        equity_wide = join_equity_frames(equity_frames)
+        if equity_wide.height > 0:
+            equity_figure = build_batch_equity_figure(
+                equity_wide,
+                slug_labels,
+                title=f"Batch equity — {project_label} {batch_run_version}",
+            )
+
+    equal_weight_portfolio: dict[str, Any] | None = None
+    if len(return_frames) >= 2:
+        from suites.insample_excellence.batch_summary_report import (
+            compute_equal_weight_portfolio_metrics,
+        )
+
+        equal_weight_portfolio = compute_equal_weight_portfolio_metrics(return_frames)
+        if equal_weight_portfolio and equal_weight_portfolio.get("performance_results"):
+            tr = equal_weight_portfolio["performance_results"].get("total_return")
+            try:
+                tr_f = float(tr)
+            except (TypeError, ValueError):
+                tr_f = float("nan")
+            print(
+                f"\nEqual-weight blended path: "
+                f"{equal_weight_portfolio['n_bars']} bars, "
+                f"{equal_weight_portfolio['n_assets']} underlyings; "
+                f"total return {tr_f:.4f} (log sum — same convention as single-name suite)"
+            )
+
+    if all_metadata:
+        from suites.insample_excellence.batch_summary_report import write_insample_batch_summary
+
+        md_path, json_path, html_path = write_insample_batch_summary(
+            batch_dir,
+            all_metadata,
+            equal_weight_portfolio=equal_weight_portfolio,
+            equity_figure=equity_figure,
+        )
+        print(f"\nBatch summary (all underlyings in {batch_run_version}):")
+        print(f"  {md_path}")
+        print(f"  {json_path}")
+        print(f"  {html_path}")
+        try:
+            webbrowser.open(Path(html_path).resolve().as_uri())
+            print("Opened batch summary HTML in browser.")
+        except Exception as e:
+            print(f"Could not open batch summary HTML in browser: {e}")
+
     print(f"\n=== {project_label.upper()} — IN-SAMPLE EXCELLENCE COMPLETED ===")
-    print("Outputs under results/<V####>/ (see tests/config.py).")
+    print("Outputs under results/<V####>/ (see configs/config.py).")
 
     return all_metadata
 
@@ -185,7 +279,7 @@ def _any_suite_enabled(tc: dict[str, Any]) -> bool:
 
 def run_project_from_config(project_dir: str, *, repo_root: str | None = None) -> list[dict[str, Any]]:
     """
-    Load ``tests/config.py`` from ``project_dir`` and run enabled suites.
+    Load ``configs/config.py`` from ``project_dir`` and run enabled suites.
 
     ``repo_root`` is the trading framework repo root (parent of ``research/``). If omitted,
     inferred from this file's location.
@@ -194,15 +288,15 @@ def run_project_from_config(project_dir: str, *, repo_root: str | None = None) -
     _ensure_import_paths(project_dir, rr)
 
     try:
-        from tests import config as tests_config
+        from configs import config as project_config
     except ImportError as e:
         raise RuntimeError(
-            f"No tests/config.py (or import error) in {project_dir!r}"
+            f"No configs/config.py (or import error) in {project_dir!r}"
         ) from e
 
-    tc = getattr(tests_config, "TEST_CONFIG", None)
+    tc = getattr(project_config, "TEST_CONFIG", None)
     if tc is None:
-        raise RuntimeError(f"tests/config.py must define TEST_CONFIG in {project_dir!r}")
+        raise RuntimeError(f"configs/config.py must define TEST_CONFIG in {project_dir!r}")
 
     if not _any_suite_enabled(tc):
         print("No enabled suites in TEST_CONFIG — nothing to run.")
@@ -211,12 +305,12 @@ def run_project_from_config(project_dir: str, *, repo_root: str | None = None) -
     out: list[dict[str, Any]] = []
     ie = tc.get("insample_excellence") or {}
     if ie.get("enabled"):
-        strategy_spec = ie.get("strategy") or getattr(tests_config, "INSAMPLE_STRATEGY", None)
+        strategy_spec = ie.get("strategy") or getattr(project_config, "INSAMPLE_STRATEGY", None)
         if not strategy_spec:
             raise RuntimeError(
                 "insample_excellence is enabled but no strategy is set. "
                 "Add 'strategy': 'strategies.module:ClassName' to insample_excellence "
-                "or define INSAMPLE_STRATEGY in tests/config.py."
+                "or define INSAMPLE_STRATEGY in configs/config.py."
             )
         out.extend(run_insample_excellence(project_dir, ie, strategy_spec=strategy_spec))
 

@@ -10,7 +10,7 @@
 - `plots/` - Interactive graphs and visualizations
 - `notes/` - Research notes, observations, and findings
 - `strategies/` - Strategy implementations specific to this research
-- `tests/` - Test scripts and configurations
+- `configs/` - Suite and validation run configuration (`config.py`)
 - `archive/` - Archived results and old versions
 
 ## Research Tests

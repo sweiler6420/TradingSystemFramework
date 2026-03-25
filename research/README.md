@@ -17,7 +17,7 @@ research/
 │   ├── results/             # Versioned runs (V0001/, …): metrics, reports, HTML plots
 │   ├── notes/               # Research notes
 │   ├── strategies/          # Project-specific strategies
-│   ├── tests/               # Test scripts and configs
+│   ├── configs/             # Suite / run configuration (config.py)
 │   └── archive/             # Archived results
 └── mach_2/                   # Another example project
     └── ...
@@ -39,12 +39,12 @@ This will create:
 - ✅ Project directory with standardized structure
 - ✅ README.md with project documentation
 - ✅ main.py with research script template
-- ✅ tests/config.py with test configuration
+- ✅ configs/config.py with suite / validation configuration
 - ✅ All necessary subdirectories
 
 ## Research test framework
 
-Each project’s `tests/config.py` describes **which** validation stages to run (in-sample excellence, permutation, walk-forward, etc.) and **which performance measures** to report.
+Each project’s `configs/config.py` describes **which** validation stages to run (in-sample excellence, permutation, walk-forward, etc.) and **which performance measures** to report.
 
 **Currently:** the shared **`InSampleExcellenceSuite`** (`research/suites/insample_excellence/`) is the main wired path—descriptive metrics + Bokeh plots + versioned metadata. Other toggles in `TEST_CONFIG` are **staged for future runners**; see the root **[README.md](../README.md)** section *Testing & validation* for how measures, significance tests, and suites should stay separate.
 

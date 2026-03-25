@@ -43,10 +43,11 @@ class CacheParquetPathTests(unittest.TestCase):
             "cache_dir",
             symbol="BTC-USD",
             interval="1h",
+            provider="massive",
             start=date(2023, 1, 1),
             end=date(2024, 1, 1),
         )
-        self.assertEqual(p.name, "BTC-USD_1h_2023-01-01_2024-01-01.parquet")
+        self.assertEqual(p.name, "BTC-USD_1h_massive_2023-01-01_2024-01-01.parquet")
         self.assertEqual(p.parent, Path("cache_dir"))
 
     def test_cache_parquet_path_includes_session_tag(self) -> None:
@@ -54,14 +55,34 @@ class CacheParquetPathTests(unittest.TestCase):
             "cache_dir",
             symbol="AAPL",
             interval="1h",
+            provider="yfinance",
             start=date(2024, 6, 1),
             end=date(2026, 1, 1),
             session_policy=SessionPolicy.US_EQUITY_RTH,
         )
         self.assertEqual(
             p.name,
-            "AAPL_1h_2024-06-01_2026-01-01_us_equity_rth.parquet",
+            "AAPL_1h_yfinance_2024-06-01_2026-01-01_us_equity_rth.parquet",
         )
+
+    def test_different_provider_different_file(self) -> None:
+        a = cache_parquet_path(
+            "d",
+            symbol="EURUSD",
+            interval="1h",
+            provider="massive",
+            start=date(2024, 1, 1),
+            end=date(2024, 6, 1),
+        )
+        b = cache_parquet_path(
+            "d",
+            symbol="EURUSD",
+            interval="1h",
+            provider="yfinance",
+            start=date(2024, 1, 1),
+            end=date(2024, 6, 1),
+        )
+        self.assertNotEqual(a.name, b.name)
 
 
 class EnsureCachedTests(unittest.TestCase):

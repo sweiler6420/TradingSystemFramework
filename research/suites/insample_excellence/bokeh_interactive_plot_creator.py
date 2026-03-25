@@ -79,20 +79,30 @@ REPORT_HOVER_PRICE_NUMERAL = "0,0.00000000"
 # Hover panel: match legend fill in _apply_report_figure_style (Bokeh tooltip reads CSS vars on body)
 REPORT_HOVER_PANEL_BG = "#121b2c"
 
-try:
-    from bokeh.models import InlineStyleSheet
+def _make_report_rounded_plot_stylesheet():
+    """New ``InlineStyleSheet`` per Bokeh export — module-level singletons attach to one document."""
+    try:
+        from bokeh.models import InlineStyleSheet
 
-    _REPORT_ROUNDED_PLOT_STYLESHEET = InlineStyleSheet(
-        css=f"""
+        return InlineStyleSheet(
+            css=f"""
 :host {{
   border-radius: {REPORT_PLOT_CORNER_RADIUS}px;
   overflow: hidden;
   box-sizing: border-box;
 }}
 """
-    )
-    _PERFORMANCE_DIV_STYLESHEET = InlineStyleSheet(
-        css="""
+        )
+    except Exception:
+        return None
+
+
+def _make_performance_div_stylesheet():
+    try:
+        from bokeh.models import InlineStyleSheet
+
+        return InlineStyleSheet(
+            css="""
 /* Bokeh MarkupView forces .bk-clearfix { display: inline-block } (inline style) — shrink-wraps HTML */
 :host {
   display: block !important;
@@ -110,10 +120,9 @@ try:
   box-sizing: border-box;
 }
 """
-    )
-except Exception:
-    _REPORT_ROUNDED_PLOT_STYLESHEET = None
-    _PERFORMANCE_DIV_STYLESHEET = None
+        )
+    except Exception:
+        return None
 
 
 # Injected into saved HTML so page background is set without relying on Jinja extends.
@@ -206,10 +215,10 @@ def _apply_report_figure_style(p) -> None:
     # Avoid scientific notation on linear y (e.g. BTC ~120000 → "120,000.00" not "1.2e+5").
     p.yaxis.formatter = NumeralTickFormatter(format=REPORT_Y_AXIS_NUMERAL_FORMAT)
 
-    if _REPORT_ROUNDED_PLOT_STYLESHEET is not None and hasattr(p, "stylesheets"):
+    rounded_ss = _make_report_rounded_plot_stylesheet()
+    if rounded_ss is not None and hasattr(p, "stylesheets"):
         existing = list(p.stylesheets) if p.stylesheets else []
-        if _REPORT_ROUNDED_PLOT_STYLESHEET not in existing:
-            p.stylesheets = existing + [_REPORT_ROUNDED_PLOT_STYLESHEET]
+        p.stylesheets = existing + [rounded_ss]
 
 
 def _report_hover_tooltip_html(rows: list[tuple[str, str]]) -> str:
@@ -349,8 +358,9 @@ def _performance_summary_div(results: Dict[str, Any]) -> Div:
 </div>
 """
     ss = []
-    if _PERFORMANCE_DIV_STYLESHEET is not None:
-        ss.append(_PERFORMANCE_DIV_STYLESHEET)
+    perf_ss = _make_performance_div_stylesheet()
+    if perf_ss is not None:
+        ss.append(perf_ss)
     return Div(
         text=block.strip(),
         sizing_mode="stretch_width",
