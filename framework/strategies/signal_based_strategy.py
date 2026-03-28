@@ -65,6 +65,20 @@ class SignalBasedStrategy(BaseStrategy):
         
         return signal_result
     
+    @staticmethod
+    def normalize_data(data: pl.DataFrame) -> pl.DataFrame:
+        """Optional hook: transform the loaded, date-filtered DataFrame once before
+        anything else runs (signal generation, charting, return calculation).
+
+        Override as a ``@staticmethod`` in subclasses to apply global transforms
+        such as timezone conversion or derived column additions.  The result
+        replaces ``data_handler.data`` in the research runner so every part of the
+        pipeline — strategy, charts, metrics — sees the same transformed data.
+
+        The default implementation returns *data* unchanged.
+        """
+        return data
+
     def generate_raw_signal(self, **kwargs) -> pl.Series:
         """Generate raw trading signals using SignalChange enums
         

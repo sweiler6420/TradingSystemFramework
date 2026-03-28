@@ -137,6 +137,7 @@ class InSampleExcellenceSuite:
         show_plot: bool = True,
         *,
         test_metadata: Dict[str, Any] | None = None,
+        symbol: str = "",
     ):
         """Create performance visualizations using Bokeh (writes ``interactive.html`` into the run folder)."""
         print(f"\n=== CREATING PERFORMANCE PLOTS ===")
@@ -171,6 +172,7 @@ class InSampleExcellenceSuite:
                 custom_plots=custom_plots,
                 strategy=self.strategy,
                 html_filename=f"{test_name}_interactive.html",
+                symbol=symbol,
             )
 
             if html_file is None:

@@ -53,18 +53,22 @@ def _filter_insample_window(df: pl.DataFrame, start_d: date, end_inclusive: date
     )
 
 
-def _load_strategy(class_spec: str, data: pl.DataFrame):
-    """
-    ``class_spec``: ``"strategies.foo_strategy:BarStrategy"`` (module path under project root).
-    """
+def _get_strategy_class(class_spec: str):
+    """Return the strategy class without instantiating it."""
     if ":" not in class_spec:
         raise ValueError(
             f"strategy must be 'module.submodule:ClassName', got {class_spec!r}"
         )
     mod_name, _, cls_name = class_spec.partition(":")
     mod = importlib.import_module(mod_name)
-    cls = getattr(mod, cls_name)
-    return cls(data)
+    return getattr(mod, cls_name)
+
+
+def _load_strategy(class_spec: str, data: pl.DataFrame):
+    """
+    ``class_spec``: ``"strategies.foo_strategy:BarStrategy"`` (module path under project root).
+    """
+    return _get_strategy_class(class_spec)(data)
 
 
 def _make_market_data_provider(provider_name: str, session):
@@ -156,7 +160,11 @@ def run_insample_excellence(
         data_handler.load_data()
         raw = data_handler.get_data()
         filtered = _filter_insample_window(raw, start_d, end_inclusive)
-        data_handler.data = filtered
+        # Apply strategy-level normalization (e.g. timezone conversion) once here
+        # so every downstream consumer — strategy, charts, return calculations —
+        # all see the same transformed data.
+        strategy_cls = _get_strategy_class(strategy_spec)
+        data_handler.data = strategy_cls.normalize_data(filtered)
         data = data_handler.get_data()
 
         if data.is_empty():
@@ -183,6 +191,7 @@ def run_insample_excellence(
             test_metadata["performance_results"],
             test_name=test_name,
             test_metadata=test_metadata,
+            symbol=symbol,
         )
         test_metadata["symbol"] = symbol
         suite.generate_test_report(test_metadata, test_name=test_name)

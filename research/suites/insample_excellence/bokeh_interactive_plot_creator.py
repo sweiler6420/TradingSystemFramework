@@ -64,6 +64,24 @@ COLOR_CANDLE_DN_FILL = "#a83232"
 COLOR_CANDLE_DN_LINE = "#ff8a80"
 COLOR_METRIC_TEXT = "#7d8796"
 
+# Standard OHLC LOD intervals available for candlestick rendering (label, minutes).
+# Listed coarsest→finest; only intervals that are integer multiples of the data's
+# base interval are actually built (e.g. 5m data → 1D / 4H / 1H / 30M / 15M / 5M).
+_LOD_INTERVALS: list[tuple[str, int]] = [
+    ("1D",  1440),
+    ("4H",   240),
+    ("1H",    60),
+    ("30M",   30),
+    ("15M",   15),
+    ("5M",     5),
+    ("1M",     1),
+]
+# Switch to the next finer interval when approximately this many bars become visible.
+_LOD_TARGET_BARS = 800
+
+# Kept as default for _resample_ohlcv_for_display's optional parameter.
+MAX_CANDLE_DISPLAY_BARS = 5_000
+
 # Main price + signals row is taller; other panes keep fixed heights below
 REPORT_PRICE_SIGNAL_HEIGHT = 400
 # Vertical gap between summary / each chart row (px)
@@ -539,6 +557,104 @@ def _add_trade_risk_reward_zones(
         )
 
 
+def _resample_ohlcv_for_display(
+    data: pl.DataFrame, max_bars: int = MAX_CANDLE_DISPLAY_BARS
+) -> pl.DataFrame:
+    """Aggregate OHLCV bars so the candle dataset never exceeds *max_bars* rows.
+
+    Groups consecutive bars into equal-sized buckets and computes proper OHLC
+    values (open=first, high=max, low=min, close=last) so bodies and wicks
+    remain visually correct at the displayed resolution.  Returns *data*
+    unchanged when it is already within the limit.
+    """
+    n = len(data)
+    if n <= max_bars:
+        return data
+    step = math.ceil(n / max_bars)
+    groups = np.arange(n, dtype=np.int64) // step
+    return (
+        data
+        .with_columns(pl.Series("_display_grp", groups))
+        .group_by("_display_grp")
+        .agg([
+            pl.col("timestamp").first(),
+            pl.col("open").first(),
+            pl.col("high").max(),
+            pl.col("low").min(),
+            pl.col("close").last(),
+        ])
+        .sort("timestamp")
+        .drop("_display_grp")
+    )
+
+
+def _make_candle_cds(data: pl.DataFrame, bar_width_ms: float) -> ColumnDataSource:
+    """Build a candle ColumnDataSource with pre-encoded up/down colors and bar_width.
+
+    Storing colors as data columns (rather than using separate up/down renderers) lets
+    a single wick segment + single vbar renderer swap resolution via CustomJS without
+    needing separate renderers per direction.
+    """
+    open_np = np.asarray(data["open"].to_numpy(), dtype=np.float64)
+    close_np = np.asarray(data["close"].to_numpy(), dtype=np.float64)
+    inc = close_np >= open_np
+    return ColumnDataSource({
+        "timestamp": data["timestamp"].to_numpy(),
+        "high": np.asarray(data["high"].to_numpy(), dtype=np.float64),
+        "low": np.asarray(data["low"].to_numpy(), dtype=np.float64),
+        "body_lo": np.minimum(open_np, close_np),
+        "body_hi": np.maximum(open_np, close_np),
+        "fill_color": np.where(inc, COLOR_CANDLE_UP_FILL, COLOR_CANDLE_DN_FILL),
+        "line_color": np.where(inc, COLOR_CANDLE_UP_LINE, COLOR_CANDLE_DN_LINE),
+        "bar_width": np.full(len(data), bar_width_ms),
+    })
+
+
+def _build_lod_cds_list(
+    data: pl.DataFrame,
+    w_ms: float,
+) -> list[tuple[str, int, ColumnDataSource]]:
+    """Build LOD (level-of-detail) candle datasets for standard time intervals.
+
+    Returns ``[(label, threshold_ms, cds), ...]`` sorted **finest-first** so the
+    caller can build a JS ``if / else if / else`` chain in order:
+
+        if (span < threshold_finest)      → finest resolution
+        else if (span < threshold_next)   → next coarser
+        ...
+        else                              → coarsest (fallback)
+
+    ``threshold_ms`` is the visible x_range span (ms) at which this interval
+    shows ~``_LOD_TARGET_BARS`` candles.  Only intervals that are integer
+    multiples of the data's base interval are included, so the result length
+    varies by dataset (e.g. 5m data → 5M/15M/30M/1H/4H/1D).
+    """
+    base_ms = w_ms / 0.8         # actual bar spacing (w_ms already applies 0.8 factor)
+    base_min = base_ms / 60_000  # ms → minutes
+    n = len(data)
+
+    result: list[tuple[str, int, ColumnDataSource]] = []
+    for label, interval_min in _LOD_INTERVALS:
+        step_f = interval_min / base_min
+        if step_f < 1.0 - 0.05:
+            continue  # finer than base data — cannot aggregate down
+        step = max(1, round(step_f))
+        if step > 1 and abs(step - step_f) / step > 0.15:
+            continue  # not a clean multiple of the base interval
+        if step >= n:
+            continue  # would collapse entire dataset to a single bar
+        target_bars = max(1, n // step)
+        res_df = _resample_ohlcv_for_display(data, target_bars) if step > 1 else data
+        cds = _make_candle_cds(res_df, w_ms * step)
+        # Threshold: this resolution fits ~_LOD_TARGET_BARS bars in the viewport
+        threshold_ms = _LOD_TARGET_BARS * interval_min * 60_000
+        result.append((label, threshold_ms, cds))
+
+    # Sort finest-first (ascending threshold_ms) for the JS if/else chain
+    result.sort(key=lambda x: x[1])
+    return result
+
+
 class BokehInteractivePlotCreator:
     """Creates interactive plots using Bokeh"""
     
@@ -557,6 +673,7 @@ class BokehInteractivePlotCreator:
         strategy=None,
         *,
         html_filename: str | None = None,
+        symbol: str = "",
     ) -> Optional[str]:
         """Create interactive analysis using Bokeh.
 
@@ -593,15 +710,24 @@ class BokehInteractivePlotCreator:
             # Theme applies to figures when serializing (dark axes, grid, outer area)
             curdoc().theme = REPORT_BOKEH_THEME
 
+            # Strip common exchange prefixes (e.g. "X:BTCUSD" → "BTCUSD")
+            _sym = re.sub(r'^[A-Za-z]:', '', symbol).strip() if symbol else ""
+
             # 1. Price and Signals Plot
             p1 = figure(
-                title="Price and Signal Changes",
+                title="",
                 x_axis_type="datetime",
                 height=REPORT_PRICE_SIGNAL_HEIGHT,
                 sizing_mode="stretch_width",
                 tools="pan,wheel_zoom,box_zoom,reset,save",
                 toolbar_location="above",
+                output_backend="webgl",
             )
+            p1.title.text = _sym if _sym else "Price & Signals"
+            p1.title.align = "center"
+            p1.title.text_color = REPORT_AXIS_TEXT
+            p1.title.text_font_size = "15px"
+            p1.title.text_font_style = "normal"
 
             levels = None
             has_trade_levels = False
@@ -619,61 +745,92 @@ class BokehInteractivePlotCreator:
                     p1, data_copy, signal_result, stop_s, tp_s, w_ms
                 )
 
-            # Candlesticks (OHLC): one legend group, hidden by default; toggle on when zoomed
+            # Candlesticks — standard-interval LOD (level-of-detail).
+            #
+            # One OHLC dataset per standard interval (1D / 4H / 1H / 30M / 15M / 5M / 1M)
+            # is embedded in the HTML — only those that are integer multiples of the
+            # data's base interval are built.  A CustomJS callback on x_range swaps the
+            # active ColumnDataSource as the user zooms so the appropriate interval is
+            # always displayed without a server.
+            candle_renderers = []
             if all(c in data_copy.columns for c in ("open", "high", "low", "close")):
-                ts_np = data_copy["timestamp"].to_numpy()
-                # Polars <1.0: to_numpy() has no dtype= kwarg; cast via numpy
-                open_np = np.asarray(data_copy["open"].to_numpy(), dtype=np.float64)
-                high_np = np.asarray(data_copy["high"].to_numpy(), dtype=np.float64)
-                low_np = np.asarray(data_copy["low"].to_numpy(), dtype=np.float64)
-                close_np = np.asarray(data_copy["close"].to_numpy(), dtype=np.float64)
-                body_lo = np.minimum(open_np, close_np)
-                body_hi = np.maximum(open_np, close_np)
-                inc = close_np >= open_np
+                lod_list = _build_lod_cds_list(data_copy, w_ms)
+                # lod_list: [(label, threshold_ms, cds), ...] sorted finest-first
 
-                # Use legend_label (not legend_group): legend_group expects a *column name*
-                # in a ColumnDataSource, not a display string.
-                wick_r = p1.segment(
-                    x0=ts_np,
-                    y0=high_np,
-                    x1=ts_np,
-                    y1=low_np,
-                    line_color=COLOR_CANDLE_WICK,
-                    line_width=COLOR_CANDLE_WICK_WIDTH,
-                    line_alpha=1.0,
-                    legend_label="Candlesticks",
-                )
-                candle_renderers = [wick_r]
-                if np.any(inc):
-                    up_r = p1.vbar(
-                        x=ts_np[inc],
-                        width=w_ms,
-                        bottom=body_lo[inc],
-                        top=body_hi[inc],
-                        fill_color=COLOR_CANDLE_UP_FILL,
-                        fill_alpha=1.0,
-                        line_color=COLOR_CANDLE_UP_LINE,
+                if lod_list:
+                    labels_built = [lbl for lbl, _, _ in lod_list]
+                    print(f"Candle LOD intervals: {' / '.join(reversed(labels_built))}")
+
+                    # Display CDS starts at coarsest for fast initial paint
+                    initial_lod_label = lod_list[-1][0]
+                    display_cds = ColumnDataSource(
+                        data={k: v for k, v in lod_list[-1][2].data.items()}
+                    )
+
+                    # Update title to show ticker + initial (coarsest) interval
+                    _title_sym = _sym if _sym else "Price & Signals"
+                    p1.title.text = f"{_title_sym} | {initial_lod_label}"
+
+                    wick_r = p1.segment(
+                        x0="timestamp",
+                        y0="high",
+                        x1="timestamp",
+                        y1="low",
+                        source=display_cds,
+                        line_color=COLOR_CANDLE_WICK,
+                        line_width=COLOR_CANDLE_WICK_WIDTH,
                         line_alpha=1.0,
-                        line_width=1,
                         legend_label="Candlesticks",
                     )
-                    candle_renderers.append(up_r)
-                if np.any(~inc):
-                    down_r = p1.vbar(
-                        x=ts_np[~inc],
-                        width=w_ms,
-                        bottom=body_lo[~inc],
-                        top=body_hi[~inc],
-                        fill_color=COLOR_CANDLE_DN_FILL,
+                    body_r = p1.vbar(
+                        x="timestamp",
+                        width="bar_width",
+                        bottom="body_lo",
+                        top="body_hi",
+                        fill_color="fill_color",
+                        line_color="line_color",
                         fill_alpha=1.0,
-                        line_color=COLOR_CANDLE_DN_LINE,
                         line_alpha=1.0,
                         line_width=1,
+                        source=display_cds,
                         legend_label="Candlesticks",
                     )
-                    candle_renderers.append(down_r)
-                for r in candle_renderers:
-                    r.visible = False
+                    candle_renderers = [wick_r, body_r]
+                    for r in candle_renderers:
+                        r.visible = False
+
+                    # Build JS args dict and if/else threshold chain dynamically.
+                    # lod_list is finest-first so the if checks run finest → coarsest.
+                    js_args: dict = {"display_cds": display_cds, "chart_title": p1.title}
+                    js_ifs: list[str] = []
+                    for i, (label, threshold_ms, cds) in enumerate(lod_list):
+                        var = f"r{i}"
+                        js_args[var] = cds
+                        prefix = "if" if i == 0 else "else if"
+                        js_ifs.append(
+                            f"    {prefix} (span < {threshold_ms}) {{ src = r{i}; lod_label = '{label}'; }}"
+                        )
+                    js_ifs.append(
+                        f"    else {{ src = r{len(lod_list) - 1}; lod_label = '{lod_list[-1][0]}'; }}"
+                    )
+
+                    # Embed symbol as a JS string literal (static, safe since it's our own value)
+                    _js_sym_prefix = (_sym.replace("'", "\\'") + " | ") if _sym else ""
+                    js_code = (
+                        "const span = cb_obj.end - cb_obj.start;\n"
+                        "if (!isFinite(span) || span <= 0) return;\n"
+                        "let src; let lod_label;\n"
+                        + "\n".join(js_ifs) + "\n"
+                        + f"chart_title.text = '{_js_sym_prefix}' + lod_label;\n"
+                        + "if (display_cds.data['timestamp'].length ==="
+                        + " src.data['timestamp'].length) return;\n"
+                        + "const nd = {};\n"
+                        + "for (const k of Object.keys(src.data)) { nd[k] = src.data[k]; }\n"
+                        + "display_cds.data = nd;\n"
+                    )
+                    _swap_js = CustomJS(args=js_args, code=js_code)
+                    p1.x_range.js_on_change("start", _swap_js)
+                    p1.x_range.js_on_change("end", _swap_js)
 
             # Close line: ColumnDataSource so hover can show RR stop / take profit when the strategy provides them
             close_cds_data: dict = {
@@ -817,6 +974,7 @@ class BokehInteractivePlotCreator:
                 tools="pan,wheel_zoom,box_zoom,reset,save",
                 toolbar_location="above",
                 x_range=p1.x_range,  # Link x-axis
+                output_backend="webgl",
             )
             
             # Position areas (optimized, no warnings)
@@ -877,6 +1035,7 @@ class BokehInteractivePlotCreator:
                 tools="pan,wheel_zoom,box_zoom,reset,save",
                 toolbar_location="above",
                 x_range=p1.x_range,  # Link x-axis
+                output_backend="webgl",
             )
             
             # Equity: match framework / strategy returns (includes RR exit fills when implemented).
